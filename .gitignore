@@ -1,0 +1,15 @@
+.direnv
+
+
+# Added by cargo
+
+/target
+.direnv
+
+
+# Added by cargo
+#
+# already existing elements were commented out
+
+#/target
+.direnv
