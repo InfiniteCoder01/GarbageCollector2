@@ -1,4 +1,6 @@
+#![feature(exclusive_range_pattern)]
 pub mod assets;
+pub mod gclang;
 pub mod level;
 pub mod player;
 use assets::*;
@@ -105,6 +107,8 @@ impl speedy2d::window::WindowHandler for Game {
             self.on_key(key, true);
             if key == VirtualKeyCode::Space || key == VirtualKeyCode::W {
                 self.input.jump = true;
+            } else if key == VirtualKeyCode::E {
+                self.input.interact = true;
             } else if key == VirtualKeyCode::Escape {
                 self.input.editor = !self.input.editor;
             } else if key == VirtualKeyCode::Z {
@@ -185,7 +189,7 @@ impl speedy2d::window::WindowHandler for Game {
 
         level.update(assets, &mut camera, delta_time);
         self.player
-            .update(assets, level, &mut camera, &self.input, delta_time);
+            .update(assets, level, &mut camera, &mut self.input, delta_time);
 
         if self.input.editor {
             graphics.draw_text(
@@ -195,7 +199,75 @@ impl speedy2d::window::WindowHandler for Game {
             )
         }
 
+        if let Some(executor) = &mut self.input.terminal {
+            let size = assets.terminal.size().into_f32()
+                * (self.size.y as f32 / 1.5 / assets.terminal.size().y as f32);
+            let tl = (self.size.into_f32() - size) / 2.0;
+            graphics.draw_rectangle_image(
+                speedy2d::shape::Rectangle::new(tl, tl + size),
+                &assets.terminal,
+            );
+
+            fn get_screen_buffer(env: &mut gclang::Environment) -> &mut String {
+                match env.get_global("screen_buffer", gclang::Value::String("".to_owned())) {
+                    gclang::Value::String(buffer) => buffer,
+                    _ => panic!("Screen buffer is not a string!"),
+                }
+            }
+
+            let mut builtins = gclang::Builtins::default();
+            builtins.functions.insert(
+                "print".to_owned(),
+                Box::new(|env, args: Vec<gclang::Value>| {
+                    let output = args
+                        .iter()
+                        .map(|arg| arg.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    get_screen_buffer(env).push_str(&output);
+                    gclang::Value::Void
+                }),
+            );
+
+            executor.execute(&mut builtins).unwrap();
+
+            let (screen_width, screen_height) = (54, 28);
+            let screen = get_screen_buffer(&mut executor.env);
+            let mut line_width = 0;
+            let mut new_screen = String::new();
+            for ch in screen.chars() {
+                if line_width >= screen_width {
+                    line_width = 0;
+                    if ch != '\n' {
+                        new_screen.push('\n');
+                    }
+                }
+                if ch == '\n' {
+                    line_width = 0;
+                } else {
+                    line_width += 1;
+                }
+                new_screen.push(ch);
+            }
+            *screen = String::new();
+            for (index, line) in new_screen.split_inclusive('\n').rev().enumerate() {
+                if index >= screen_height {
+                    break;
+                }
+                screen.insert_str(0, line)
+            }
+
+            graphics.draw_text(
+                tl + size / Vec2::new(17.0, 14.0),
+                Color::GREEN,
+                &assets
+                    .font
+                    .layout_text(screen, (size.y - 26.0) / 30.0, Default::default()),
+            )
+        }
+
         self.input.jump = false;
+        self.input.interact = false;
         helper.request_redraw();
     }
 }

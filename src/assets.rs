@@ -10,24 +10,28 @@ pub struct Assets {
 
     pub tileset: Atlas,
     pub player: Atlas,
+    pub terminal: ImageHandle,
 }
 
 impl Assets {
     pub(crate) fn load(graphics: &mut speedy2d::Graphics2D) -> Result<Self> {
-        macro_rules! load_atlas {
+        macro_rules! load_texture {
+            ($name: ident) => {
+                graphics
+                    .create_image_from_file_bytes(
+                        Some(speedy2d::image::ImageFileFormat::PNG),
+                        speedy2d::image::ImageSmoothingMode::NearestNeighbor,
+                        std::io::Cursor::new(include_bytes!(concat!(
+                            "../Assets/Textures/",
+                            stringify!($name),
+                            ".png"
+                        ))),
+                    )
+                    .map_err(|err| anyhow!(err.to_string()))?
+            };
             ($name: ident, $tile_size: expr) => {
                 Atlas {
-                    image: graphics
-                        .create_image_from_file_bytes(
-                            Some(speedy2d::image::ImageFileFormat::PNG),
-                            speedy2d::image::ImageSmoothingMode::NearestNeighbor,
-                            std::io::Cursor::new(include_bytes!(concat!(
-                                "../Assets/Textures/",
-                                stringify!($name),
-                                ".png"
-                            ))),
-                        )
-                        .map_err(|err| anyhow!(err.to_string()))?,
+                    image: load_texture!($name),
                     tile_size: UVec2::from($tile_size),
                 }
             };
@@ -37,8 +41,9 @@ impl Assets {
             font: speedy2d::font::Font::new(include_bytes!("../Assets/JoystixMonospace.ttf"))
                 .map_err(|err| anyhow!(err.to_string()))?,
 
-            tileset: load_atlas!(Tileset, (16, 16)),
-            player: load_atlas!(Player, (16, 24)),
+            tileset: load_texture!(Tileset, (16, 16)),
+            player: load_texture!(Player, (16, 24)),
+            terminal: load_texture!(Terminal),
         })
     }
 }
@@ -51,13 +56,12 @@ pub struct Atlas {
 impl Atlas {
     pub fn draw_tile(&self, camera: &mut Camera, position: Vec2, tile: UVec2) {
         let position = (position - camera.offset) * camera.scale;
+        let size = self.tile_size.into_f32() * camera.scale;
+        let size = Vec2::new(size.x.ceil(), size.y.ceil());
         let src_pos = tile * self.tile_size;
         let src_pos = src_pos.into_f32() / self.image.size().into_f32();
         camera.graphics.draw_rectangle_image_subset_tinted(
-            Rectangle::new(
-                position,
-                position + self.tile_size.into_f32() * camera.scale,
-            ),
+            Rectangle::new(position, position + size),
             Color::WHITE,
             Rectangle::new(
                 src_pos,
@@ -89,14 +93,13 @@ impl Atlas {
             let position = (position - camera.offset
                 + direction.into_f32() * self.tile_size.into_f32() / 2.0)
                 * camera.scale;
+            let size = self.tile_size.into_f32() * camera.scale / 2.0;
+            let size = Vec2::new(size.x.ceil(), size.y.ceil());
             let src_pos =
                 (tile + UVec2::new_x(offset)) * self.tile_size + direction * self.tile_size / 2;
             let src_size = self.tile_size / 2;
             camera.graphics.draw_rectangle_image_subset_tinted(
-                Rectangle::new(
-                    position,
-                    position + self.tile_size.into_f32() * camera.scale / 2.0,
-                ),
+                Rectangle::new(position, position + size),
                 Color::WHITE,
                 Rectangle::new(
                     src_pos.into_f32() / self.image.size().into_f32(),
@@ -122,6 +125,7 @@ pub struct Camera<'a> {
 pub struct Input {
     pub wasd: IVec2,
     pub jump: bool,
+    pub interact: bool,
 
     pub mouse: Vec2,
     pub mouse_left: bool,
@@ -130,6 +134,8 @@ pub struct Input {
     pub editor: bool,
     pub palette: Vec<crate::level::Tile>,
     pub palette_index: usize,
+
+    pub terminal: Option<crate::gclang::Executor>,
 }
 
 impl Default for Input {
@@ -139,6 +145,7 @@ impl Default for Input {
         Self {
             wasd: IVec2::ZERO,
             jump: false,
+            interact: false,
 
             mouse: Vec2::ZERO,
             mouse_left: false,
@@ -147,6 +154,8 @@ impl Default for Input {
             editor: false,
             palette: vec![Tile::Ground, Tile::Table, Tile::Terminal],
             palette_index: 0,
+
+            terminal: None,
         }
     }
 }
