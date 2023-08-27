@@ -16,6 +16,7 @@ pub struct Scope {
 
 #[derive(Debug)]
 pub enum Statement {
+    GlobalVariable(String, Expression),
     Expression(Expression),
 }
 
@@ -23,25 +24,23 @@ pub enum Statement {
 pub enum Expression {
     Constant(Value),
     Variable(String),
+    Assignment(String, Box<Expression>),
+    Binary(Box<Expression>, String, Box<Expression>),
     FunctionCall {
         name: String,
         arguments: Vec<Expression>,
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Value {
     Int(i32),
     String(String),
+    Bool(bool),
     Void,
 }
 
 // * Exec
-pub struct Executor {
-    pub env: Environment,
-    program: Program,
-}
-
 #[derive(Default)]
 pub struct Environment {
     pub global: HashMap<String, Value>,
@@ -60,6 +59,7 @@ impl ToString for Value {
         match self {
             Value::Int(value) => value.to_string(),
             Value::String(value) => value.clone(),
+            Value::Bool(value) => value.to_string(),
             Value::Void => "Nothing".to_owned(),
         }
     }

@@ -31,9 +31,7 @@ impl Player {
                         Tile::Ground => return true,
                         Tile::Terminal => {
                             if input.interact {
-                                input.terminal = Some(crate::gclang::Executor::new(
-                                    crate::gclang::Program::bash(),
-                                ));
+                                input.terminal = Some(crate::gclang::Program::bash());
                             }
                         }
                         _ => (),

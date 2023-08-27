@@ -199,22 +199,7 @@ impl speedy2d::window::WindowHandler for Game {
             )
         }
 
-        if let Some(executor) = &mut self.input.terminal {
-            let size = assets.terminal.size().into_f32()
-                * (self.size.y as f32 / 1.5 / assets.terminal.size().y as f32);
-            let tl = (self.size.into_f32() - size) / 2.0;
-            graphics.draw_rectangle_image(
-                speedy2d::shape::Rectangle::new(tl, tl + size),
-                &assets.terminal,
-            );
-
-            fn get_screen_buffer(env: &mut gclang::Environment) -> &mut String {
-                match env.get_global("screen_buffer", gclang::Value::String("".to_owned())) {
-                    gclang::Value::String(buffer) => buffer,
-                    _ => panic!("Screen buffer is not a string!"),
-                }
-            }
-
+        if let Some(program) = &mut self.input.terminal {
             let mut builtins = gclang::Builtins::default();
             builtins.functions.insert(
                 "print".to_owned(),
@@ -224,15 +209,24 @@ impl speedy2d::window::WindowHandler for Game {
                         .map(|arg| arg.to_string())
                         .collect::<Vec<_>>()
                         .join(", ");
-                    get_screen_buffer(env).push_str(&output);
+                    env.get_screen_buffer().push_str(&output);
                     gclang::Value::Void
                 }),
             );
 
-            executor.execute(&mut builtins).unwrap();
+            program.execute(&mut self.input.env, &mut builtins).unwrap();
+
+            // * Draw terminal
+            let size = assets.terminal.size().into_f32()
+                * (self.size.y as f32 / 1.5 / assets.terminal.size().y as f32);
+            let tl = (self.size.into_f32() - size) / 2.0;
+            graphics.draw_rectangle_image(
+                speedy2d::shape::Rectangle::new(tl, tl + size),
+                &assets.terminal,
+            );
 
             let (screen_width, screen_height) = (54, 28);
-            let screen = get_screen_buffer(&mut executor.env);
+            let screen = self.input.env.get_screen_buffer();
             let mut line_width = 0;
             let mut new_screen = String::new();
             for ch in screen.chars() {
@@ -269,5 +263,23 @@ impl speedy2d::window::WindowHandler for Game {
         self.input.jump = false;
         self.input.interact = false;
         helper.request_redraw();
+    }
+}
+
+impl gclang::Environment {
+    pub fn new() -> Self {
+        let mut this = Self::default();
+        this.global.insert(
+            String::from("screen_buffer"),
+            gclang::Value::String(String::new()),
+        );
+        this
+    }
+
+    pub fn get_screen_buffer(&mut self) -> &mut String {
+        match self.get_global("screen_buffer", gclang::Value::String("".to_owned())) {
+            gclang::Value::String(buffer) => buffer,
+            _ => panic!("Screen buffer is not a string!"),
+        }
     }
 }

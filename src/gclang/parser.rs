@@ -6,6 +6,10 @@ use enum_lexer::enum_lexer;
 enum_lexer! {
     #[derive(Clone, Debug, PartialEq)]
     enum lexer {
+        COMMENTS: {
+            r"//.*?\n" => !,
+            r"/\*.*?\*/" => !,
+        }
         Ident(String): {
             r"[A-Za-z_][A-Za-z_0-9]*" => Ident(text),
         }
@@ -15,29 +19,30 @@ enum_lexer! {
         LString(String): {
             r#"".*?""# => LString(text[1..text.len() - 1].replace("\\n", "\n").replace("\\\"", "\"")),
             r#""\\\"""# => LString(String::from("\"")),
+        }
+        LBool(bool): {
+            r"true" => LBool(true),
+            r"false" => LBool(false),
 
         }
-        Op(char): {
-            r"\+" => Op('+'),
-            r"\-" => Op('-'),
-            r"\=" => Op('='),
-            r"\(" => Op('('),
-            r"\)" => Op(')'),
-            r"\{" => Op('{'),
-            r"\}" => Op('}'),
+        Op(String): {
+            r"\+" => Op(String::from("+")),
+            r"\-" => Op(String::from("-")),
+            r"\*" => Op(String::from("*")),
+            r"\/" => Op(String::from("/")),
+            r"%" => Op(String::from("%")),
+            r"=" => Op(String::from("=")),
+            r"==" => Op(String::from("==")),
         }
         Semicolon: r";",
         Fn: r"fn",
         Let: r"let",
+        Global: r"global",
         Parentheses(Vec<Token>) : {
             r"\(" => {
                 Parentheses(read_group()?)
             }
             r"\)" => { panic!("error") }
-        }
-        COMMENTS: {
-            r"//.*?\n" => !,
-            r"/\*.*?\*/" => !,
         }
     }
 }
@@ -83,6 +88,18 @@ impl Scope {
         let mut scope = Self::default();
         while let Some(token) = peek_token(tokens)? {
             scope.statements.push(match token {
+                TokenInner::Global => {
+                    next_token(tokens)?;
+                    if let Some(TokenInner::Ident(name)) = next_token(tokens)? {
+                        if next_token(tokens)? == Some(TokenInner::Op(String::from("="))) {
+                            Statement::GlobalVariable(name, Expression::parse(tokens)?)
+                        } else {
+                            bail!("You have to assign a value to a global variable!");
+                        }
+                    } else {
+                        bail!("Expected global variable name!");
+                    }
+                }
                 _ => Statement::Expression(Expression::parse(tokens)?),
             });
             if next_token(tokens)? != Some(TokenInner::Semicolon) {
@@ -95,6 +112,69 @@ impl Scope {
 
 impl Expression {
     fn parse(
+        tokens: &mut Peekable<impl Iterator<Item = lexer::Result<lexer::Token>>>,
+    ) -> Result<Self> {
+        let mut lhs = Self::comparsion(tokens)?;
+        if peek_token(tokens)? == Some(TokenInner::Op(String::from("="))) {
+            next_token(tokens)?;
+            if let Expression::Variable(name) = lhs {
+                lhs = Expression::Assignment(name, Box::new(Expression::parse(tokens)?));
+            } else {
+                bail!("You can assign only to a variable!");
+            }
+        }
+        Ok(lhs)
+    }
+
+    fn comparsion(
+        tokens: &mut Peekable<impl Iterator<Item = lexer::Result<lexer::Token>>>,
+    ) -> Result<Self> {
+        let mut lhs = Self::binary(tokens)?;
+        if let Some(TokenInner::Op(op)) = peek_token(tokens)? {
+            match op.as_str() {
+                ">" | "<" | ">=" | "<=" | "==" | "!=" => {
+                    next_token(tokens)?;
+                    lhs = Expression::Binary(Box::new(lhs), op, Box::new(Self::mult(tokens)?))
+                }
+                _ => (),
+            }
+        }
+        Ok(lhs)
+    }
+
+    fn binary(
+        tokens: &mut Peekable<impl Iterator<Item = lexer::Result<lexer::Token>>>,
+    ) -> Result<Self> {
+        let mut lhs = Self::mult(tokens)?;
+        while let Some(TokenInner::Op(op)) = peek_token(tokens)? {
+            match op.as_str() {
+                "+" | "-" => {
+                    next_token(tokens)?;
+                    lhs = Expression::Binary(Box::new(lhs), op, Box::new(Self::mult(tokens)?))
+                }
+                _ => break,
+            }
+        }
+        Ok(lhs)
+    }
+
+    fn mult(
+        tokens: &mut Peekable<impl Iterator<Item = lexer::Result<lexer::Token>>>,
+    ) -> Result<Self> {
+        let mut lhs = Self::unary(tokens)?;
+        while let Some(TokenInner::Op(op)) = peek_token(tokens)? {
+            match op.as_str() {
+                "*" | "/" | "%" => {
+                    next_token(tokens)?;
+                    lhs = Expression::Binary(Box::new(lhs), op, Box::new(Self::unary(tokens)?))
+                }
+                _ => break,
+            }
+        }
+        Ok(lhs)
+    }
+
+    fn unary(
         tokens: &mut Peekable<impl Iterator<Item = lexer::Result<lexer::Token>>>,
     ) -> Result<Self> {
         Ok(match next_token(tokens)?.context("Expected expression!")? {
@@ -116,6 +196,7 @@ impl Expression {
 
             TokenInner::LInt(value) => Self::Constant(Value::Int(value)),
             TokenInner::LString(value) => Self::Constant(Value::String(value)),
+            TokenInner::LBool(value) => Self::Constant(Value::Bool(value)),
             token => bail!("Expected expression, got '{:?}'!", token),
         })
     }
