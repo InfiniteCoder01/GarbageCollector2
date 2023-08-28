@@ -1,6 +1,17 @@
 global filesystem = {
   "home" = {};
   "bin" = {
-    "bash" = "screen_buffer = \"You want another shell? :(\";";
+    "bash" = "println(\"You want another shell? :(\");";
   };
 };
+
+fn print(text: String) {
+  screen_buffer = screen_buffer + text;
+}
+
+fn println(text: String) {
+  screen_buffer = screen_buffer + text + "\n";
+}
+
+let bin = filesystem["bin"];
+eval(bin["bash"]);

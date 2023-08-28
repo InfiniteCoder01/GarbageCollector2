@@ -30,27 +30,61 @@ impl ToString for Value {
 #[derive(Default)]
 pub struct Scopes {
     global: HashMap<String, Value>,
-    local: Vec<HashMap<String, Value>>,
+    local: Vec<StackFrame>,
+}
+
+#[derive(Default)]
+struct StackFrame {
+    variables: HashMap<String, Value>,
+    functions: HashMap<String, Function>,
+}
+
+#[derive(Clone)]
+struct Function {
+    args: Vec<ArgDef>,
+    statement: Statement,
 }
 
 impl Scopes {
-    fn get(&self, ident: &str) -> Result<&Value> {
-        match self.local.iter().rev().find_map(|st| st.get(ident)) {
+    fn get(&self, name: &str) -> Result<&Value> {
+        match self
+            .local
+            .iter()
+            .rev()
+            .find_map(|frame| frame.variables.get(name))
+        {
             Some(value) => Ok(value),
-            None => match self.global.get(ident) {
+            None => match self.global.get(name) {
                 Some(value) => Ok(value),
-                None => bail!("Variable `{ident}` not found!"),
+                None => bail!("Variable `{name}` not found!"),
             },
         }
     }
 
-    fn get_mut(&mut self, ident: &str) -> Result<&mut Value> {
-        match self.local.iter_mut().rev().find_map(|st| st.get_mut(ident)) {
+    fn get_mut(&mut self, name: &str) -> Result<&mut Value> {
+        match self
+            .local
+            .iter_mut()
+            .rev()
+            .find_map(|frame| frame.variables.get_mut(name))
+        {
             Some(value) => Ok(value),
-            None => match self.global.get_mut(ident) {
+            None => match self.global.get_mut(name) {
                 Some(value) => Ok(value),
-                None => bail!("Variable `{ident}` not found!"),
+                None => bail!("Variable `{name}` not found!"),
             },
+        }
+    }
+
+    fn get_function(&self, name: &str) -> Result<&Function> {
+        match self
+            .local
+            .iter()
+            .rev()
+            .find_map(|frame| frame.functions.get(name))
+        {
+            Some(functoin) => Ok(functoin),
+            None => bail!("Function `{name}` not found!"),
         }
     }
 
@@ -86,6 +120,7 @@ impl Eval for Statement {
                     .local
                     .last_mut()
                     .context("Nowhere to create a local variable!")?
+                    .variables
                     .entry(name.ident().to_owned())
                 {
                     std::collections::hash_map::Entry::Occupied(_) => {
@@ -97,11 +132,35 @@ impl Eval for Statement {
                 }
                 Ok(Value::Unit)
             }
+            Statement::FnDecl(decl) => decl.eval(scopes, library),
             Statement::If(statement) => statement.eval(scopes, library),
             Statement::Block(statement) => statement.eval(scopes, library),
             Statement::Expression(expr) => expr.eval(scopes, library),
             Statement::End(_) => Ok(Value::Never),
         }
+    }
+}
+
+impl Eval for FnDecl {
+    fn eval(&self, scopes: &mut Scopes, _library: &mut Library) -> Result<Value> {
+        match scopes
+            .local
+            .last_mut()
+            .context("Nowhere to create a local function!")?
+            .functions
+            .entry(self.name.ident().to_owned())
+        {
+            std::collections::hash_map::Entry::Occupied(_) => {
+                bail!("Function '{}' already exists!", self.name.ident())
+            }
+            std::collections::hash_map::Entry::Vacant(function) => {
+                function.insert(Function {
+                    args: self.args.0.clone(),
+                    statement: self.statement.clone(),
+                });
+            }
+        }
+        Ok(Value::Unit)
     }
 }
 
@@ -111,7 +170,7 @@ impl Eval for IfStatement {
         let condition = ensure_type!(
             condition,
             Bool,
-            "If can be only used with condition that returns bool"
+            "If's can be only used with conditions of type bool"
         );
         if condition {
             self.statement.eval(scopes, library)?;
@@ -348,10 +407,39 @@ impl Eval for FunctionCall {
         let args = args
             .map(|e| e.eval(scopes, library))
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        library
-            .functions
-            .get_mut(self.name.ident())
-            .context(format!("Function {} not found!", self.name.ident()))?(scopes, args)
+        if let Some(function) = library.functions.get_mut(self.name.ident()) {
+            function(scopes, args)
+        } else {
+            let function = scopes.get_function(self.name.ident())?.clone();
+            ensure!(
+                args.len() == function.args.len(),
+                "Function argument count mismatch when calling function {}!",
+                self.name.ident()
+            );
+            scopes.local.push(StackFrame::default());
+            for (index, arg) in args.into_iter().enumerate() {
+                let arg_def = &function.args[index];
+                match (&arg, arg_def.arg_type.inner()) {
+                    (Value::Int(_), Type::Int) => (),
+                    (Value::Bool(_), Type::Bool) => (),
+                    (Value::String(_), Type::String) => (),
+                    (Value::Table(_), Type::Table) => (),
+                    _ => bail!(
+                        "Function argument type mismatch when calling function {}!",
+                        self.name.ident()
+                    ),
+                }
+                scopes
+                    .local
+                    .last_mut()
+                    .context("Internal error: nowhere to create an argument variable!")?
+                    .variables
+                    .insert(arg_def.name.ident().to_owned(), arg);
+            }
+            function.statement.eval(scopes, library)?;
+            scopes.local.pop();
+            Ok(Value::Unit)
+        }
     }
 }
 
@@ -433,6 +521,7 @@ impl AssignTo for Access {
             (Value::Int(_), Value::Int(_)) => (),
             (Value::Bool(_), Value::Bool(_)) => (),
             (Value::String(_), Value::String(_)) => (),
+            (Value::Table(_), Value::Table(_)) => (),
             _ => bail!("Type mismatch in assignment!"),
         }
         *target = value;
@@ -442,7 +531,7 @@ impl AssignTo for Access {
 
 impl Program {
     pub fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<()> {
-        scopes.local.push(HashMap::new());
+        scopes.local.push(StackFrame::default());
         for statement in &self.statements {
             statement.eval(scopes, library)?;
         }

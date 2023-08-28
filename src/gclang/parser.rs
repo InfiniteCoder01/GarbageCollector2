@@ -13,8 +13,10 @@ use std::{fmt, str::FromStr};
 enum TokenKind {
     #[skip(r"\s+")]
     _Skip,
-    #[regex(r"global|let|if|else")]
+    #[regex(r"global|let|fn|if|else")]
     Keyword(Keyword),
+    #[regex(r"int|bool|String|Table")]
+    Type(Type),
     #[regex(r"[_a-zA-Z][_a-zA-Z0-9]*")]
     Ident(String),
     #[regex(r"[0-9]|[1-9][0-9]+|0x[0-9a-fA-F]+", int_literal)]
@@ -33,6 +35,7 @@ enum TokenKind {
 enum Keyword {
     Global,
     Let,
+    Fn,
     If,
     Else,
 }
@@ -44,6 +47,7 @@ impl FromStr for Keyword {
         match s {
             "global" => Ok(Self::Global),
             "let" => Ok(Self::Let),
+            "fn" => Ok(Self::Fn),
             "if" => Ok(Self::If),
             "else" => Ok(Self::Else),
             _ => Err(()),
@@ -56,8 +60,42 @@ impl fmt::Display for Keyword {
         match self {
             Self::Global => write!(f, "global"),
             Self::Let => write!(f, "let"),
+            Self::Fn => write!(f, "fn"),
             Self::If => write!(f, "if"),
             Self::Else => write!(f, "else"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Type {
+    Int,
+    Bool,
+    String,
+    Table,
+}
+
+impl FromStr for Type {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "int" => Ok(Self::Int),
+            "bool" => Ok(Self::Bool),
+            "String" => Ok(Self::String),
+            "Table" => Ok(Self::Table),
+            _ => Err(()),
+        }
+    }
+}
+
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Int => write!(f, "int"),
+            Self::Bool => write!(f, "bool"),
+            Self::String => write!(f, "String"),
+            Self::Table => write!(f, "Table"),
         }
     }
 }
@@ -147,13 +185,15 @@ impl fmt::Display for StringLiteral {
 type Token = laps::token::Token<TokenKind>;
 
 token_ast! {
-  #[derive(Debug, PartialEq)]
+  #[derive(Clone, Debug, PartialEq)]
   macro Token<TokenKind> {
     [ident] => { kind: TokenKind::Ident(_), prompt: "identifier" },
-    [let] => { kind: TokenKind::Keyword(Keyword::Let) },
     [global] => { kind: TokenKind::Keyword(Keyword::Global) },
+    [let] => { kind: TokenKind::Keyword(Keyword::Let) },
+    [fn] => { kind: TokenKind::Keyword(Keyword::Fn) },
     [if] => { kind: TokenKind::Keyword(Keyword::If) },
     [else] => { kind: TokenKind::Keyword(Keyword::Else) },
+    [type] => { kind: TokenKind::Type(_), prompt: "type" },
     [lint] => { kind: TokenKind::Int(_), prompt: "integer literal" },
     [lstring] => { kind: TokenKind::String(_), prompt: "string literal" },
     [+] => { kind: TokenKind::Operator(Operator::Add) },
@@ -172,6 +212,7 @@ token_ast! {
     [!] => { kind: TokenKind::Operator(Operator::Not) },
     [=] => { kind: TokenKind::Operator(Operator::Assign) },
     [,] => { kind: TokenKind::Other(',') },
+    [:] => { kind: TokenKind::Other(':') },
     [;] => { kind: TokenKind::Other(';') },
     [lpr] => { kind: TokenKind::Other('(') },
     [rpr] => { kind: TokenKind::Other(')') },
@@ -187,6 +228,15 @@ impl Token![ident] {
     pub(super) fn ident(&self) -> &str {
         match &self.0.kind {
             TokenKind::Ident(value) => value,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl Token![type] {
+    pub(super) fn inner(&self) -> &Type {
+        match &self.0.kind {
+            TokenKind::Type(value) => value,
             _ => unreachable!(),
         }
     }
@@ -211,7 +261,7 @@ impl Token![lstring] {
 }
 
 // * ------------------------------------------------------------------------------- Statements ------------------------------------------------------------------------------- * //
-#[derive(Parse, Debug)]
+#[derive(Parse, Clone, Debug)]
 #[token(Token)]
 pub(super) enum Statement {
     GlobalDecl(
@@ -222,13 +272,33 @@ pub(super) enum Statement {
         Token![;],
     ),
     LocalDecl(Token![let], Token![ident], Token![=], Expression, Token![;]),
+    FnDecl(Box<FnDecl>),
     If(Box<IfStatement>),
     Block(BlockStatement),
     Expression(ExpressionStatement),
     End(Token![eof]),
 }
 
-#[derive(Parse, Debug)]
+#[derive(Parse, Clone, Debug)]
+#[token(Token)]
+pub(super) struct FnDecl {
+    _fn: Token![fn],
+    pub(super) name: Token![ident],
+    _lpr: Token![lpr],
+    pub(super) args: SepSeq<ArgDef, Token![,]>,
+    _rpr: Token![rpr],
+    pub(super) statement: Statement,
+}
+
+#[derive(Parse, Clone, Debug)]
+#[token(Token)]
+pub(super) struct ArgDef {
+    pub(super) name: Token![ident],
+    _colon: Token![:],
+    pub(super) arg_type: Token![type],
+}
+
+#[derive(Parse, Clone, Debug)]
 #[token(Token)]
 pub(super) struct IfStatement {
     _if: Token![if],
@@ -239,14 +309,14 @@ pub(super) struct IfStatement {
     pub(super) else_statement: Option<ElseStatement>,
 }
 
-#[derive(Parse, Debug)]
+#[derive(Parse, Clone, Debug)]
 #[token(Token)]
 pub(super) struct ElseStatement {
     _else: Token![else],
     pub(super) statement: Statement,
 }
 
-#[derive(Parse, Debug)]
+#[derive(Parse, Clone, Debug)]
 #[token(Token)]
 pub(super) struct BlockStatement {
     _lbk: Token![lbk],
@@ -254,7 +324,7 @@ pub(super) struct BlockStatement {
     _rbk: Token![rbk],
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) enum ExpressionStatement {
     Expression(Box<Expression>, Token![;]),
     Assign(Box<Assign>),
@@ -283,7 +353,7 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct Assign {
     pub(super) lval: Expression,
     _assign: Token![=],
@@ -296,7 +366,7 @@ pub(super) type Expression = NonEmptySepList<AndExp, Token![||]>;
 pub(super) type AndExp = NonEmptySepList<EqExp, Token![&&]>;
 pub(super) type EqExp = NonEmptySepList<RelExp, EqOps>;
 
-#[derive(Parse, Debug)]
+#[derive(Parse, Clone, Debug)]
 #[token(Token)]
 pub(super) enum EqOps {
     Eq(Token![==]),
@@ -305,7 +375,7 @@ pub(super) enum EqOps {
 
 pub(super) type RelExp = NonEmptySepList<AddExp, RelOps>;
 
-#[derive(Parse, Debug)]
+#[derive(Parse, Clone, Debug)]
 #[token(Token)]
 pub(super) enum RelOps {
     Lt(Token![<]),
@@ -316,7 +386,7 @@ pub(super) enum RelOps {
 
 pub(super) type AddExp = NonEmptySepList<MulExp, AddOps>;
 
-#[derive(Parse, Debug)]
+#[derive(Parse, Clone, Debug)]
 #[token(Token)]
 pub(super) enum AddOps {
     Add(Token![+]),
@@ -325,7 +395,7 @@ pub(super) enum AddOps {
 
 pub(super) type MulExp = NonEmptySepList<UnaryExp, MulOps>;
 
-#[derive(Parse, Debug)]
+#[derive(Parse, Clone, Debug)]
 #[token(Token)]
 pub(super) enum MulOps {
     Mul(Token![*]),
@@ -333,14 +403,14 @@ pub(super) enum MulOps {
     Mod(Token![%]),
 }
 
-#[derive(Parse, Spanned, Debug)]
+#[derive(Parse, Clone, Spanned, Debug)]
 #[token(Token)]
 pub(super) enum UnaryExp {
     Unary(UnaryOps, Box<Self>),
     Primary(Box<PrimaryExp>),
 }
 
-#[derive(Parse, Spanned, Debug)]
+#[derive(Parse, Clone, Spanned, Debug)]
 #[token(Token)]
 pub(super) enum UnaryOps {
     Pos(Token![+]),
@@ -348,7 +418,7 @@ pub(super) enum UnaryOps {
     Not(Token![!]),
 }
 
-#[derive(Parse, Spanned, Debug)]
+#[derive(Parse, Clone, Spanned, Debug)]
 #[token(Token)]
 pub(super) enum PrimaryExp {
     ParenExp(ParenExp),
@@ -359,7 +429,7 @@ pub(super) enum PrimaryExp {
     Table(Table),
 }
 
-#[derive(Parse, Spanned, Debug)]
+#[derive(Parse, Clone, Spanned, Debug)]
 #[token(Token)]
 pub(super) struct ParenExp {
     _lpr: Token![lpr],
@@ -367,7 +437,7 @@ pub(super) struct ParenExp {
     _rpr: Token![rpr],
 }
 
-#[derive(Parse, Spanned, Debug)]
+#[derive(Parse, Clone, Spanned, Debug)]
 #[token(Token)]
 pub(super) struct Table {
     _lbk: Token![lbk],
@@ -375,14 +445,14 @@ pub(super) struct Table {
     _rbk: Token![rbk],
 }
 
-#[derive(Parse, Spanned, Debug)]
+#[derive(Parse, Clone, Spanned, Debug)]
 #[token(Token)]
 pub(super) enum TableEntry {
     Property(Token![ident], Token![=], Expression, Token![;]),
     Indexed(Expression, Token![=], Expression, Token![;]),
 }
 
-#[derive(Parse, Spanned, Debug)]
+#[derive(Parse, Clone, Spanned, Debug)]
 #[token(Token)]
 #[starts_with(Token![ident], Token![lpr])]
 pub(super) struct FunctionCall {
@@ -392,7 +462,7 @@ pub(super) struct FunctionCall {
     _rpr: Token![rpr],
 }
 
-#[derive(Parse, Debug)]
+#[derive(Parse, Clone, Debug)]
 #[token(Token)]
 pub(super) struct Access {
     pub(super) ident: Token![ident],
@@ -408,7 +478,7 @@ impl Spanned for Access {
     }
 }
 
-#[derive(Parse, Spanned, Debug)]
+#[derive(Parse, Clone, Spanned, Debug)]
 #[token(Token)]
 pub(super) struct Index {
     _lbc: Token![lbc],

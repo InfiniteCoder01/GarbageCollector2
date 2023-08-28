@@ -213,7 +213,19 @@ impl speedy2d::window::WindowHandler for Game {
                 get_screen_buffer(scopes).push_str(&output);
                 Ok(Value::Unit)
             });
-            program.eval(&mut self.input.scopes, &mut library).unwrap();
+            library_function!(library += println (scopes, args) {
+                let output = args
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                get_screen_buffer(scopes).push_str(&output);
+                get_screen_buffer(scopes).push('\n');
+                Ok(Value::Unit)
+            });
+            if let Err(err) = program.eval(&mut self.input.scopes, &mut library) {
+                get_screen_buffer(&mut self.input.scopes).push_str(&err.to_string());
+            }
 
             // * Draw terminal
             let size = assets.terminal.size().into_f32()
