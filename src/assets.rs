@@ -126,6 +126,7 @@ pub struct Input {
     pub wasd: IVec2,
     pub jump: bool,
     pub interact: bool,
+    pub shift: bool,
 
     pub mouse: Vec2,
     pub mouse_left: bool,
@@ -135,6 +136,7 @@ pub struct Input {
     pub palette: Vec<crate::level::Tile>,
     pub palette_index: usize,
 
+    pub typed_text: String,
     pub scopes: crate::gclang::Scopes,
     pub terminal: Option<crate::gclang::Program>,
 }
@@ -147,6 +149,7 @@ impl Default for Input {
             wasd: IVec2::ZERO,
             jump: false,
             interact: false,
+            shift: false,
 
             mouse: Vec2::ZERO,
             mouse_left: false,
@@ -156,6 +159,7 @@ impl Default for Input {
             palette: vec![Tile::Ground, Tile::Table, Tile::Terminal],
             palette_index: 0,
 
+            typed_text: String::new(),
             scopes: crate::gclang::Scopes::default(),
             terminal: None,
         }

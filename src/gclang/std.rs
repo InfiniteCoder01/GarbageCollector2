@@ -1,21 +1,27 @@
 use super::*;
 use anyhow::*;
 
-impl Library {
+impl Library<'_> {
     pub fn with_std() -> Self {
         let mut library = Self::default();
         library_function!(library += eval(scopes, args) {
-            ensure!(args.len() == 1, r#"Usage: eval("some_global_variable = \"Evaluated\";");"#);
-            let code = ensure_type!(&args[0], String, r#"Usage: eval("some_global_variable = \"Evaluated\";");"#);
-                Program::parse(code).eval(scopes, &mut Library::with_std())?;
+            match &args[..] {
+                [Value::String(code)] => Program::parse(code).eval(scopes, &mut Library::with_std())?,
+                _ => bail!(r#"Usage: eval("some_global_variable = \"Evaluated\";");"#),
+            }
             Ok(Value::Unit)
         });
         library_function!(library += len(_scopes, args) {
-            ensure!(args.len() == 1, r#"Usage: len("Some text") or len({{0 = "Some table";}})"#);
-            Ok(match &args[0] {
-                Value::String(value) => Value::Int(value.len() as _),
-                Value::Table(value) => Value::Int(value.len() as _),
+            Ok(match &args[..] {
+                [Value::String(value)] => Value::Int(value.len() as _),
+                [Value::Table(value)] => Value::Int(value.len() as _),
                 _ => bail!(r#"Usage: len("Some text") or len({{0 = "Some table";}})"#)
+            })
+        });
+        library_function!(library += contains(_scopes, args) {
+            Ok(match &args[..] {
+                [Value::String(value), Value::String(searched)] => Value::Bool(value.contains(searched)),
+                _ => bail!(r#"Usage: contains("Some text", "te")"#)
             })
         });
         library

@@ -93,11 +93,11 @@ impl Scopes {
     }
 }
 
-type LibFunction = Box<dyn FnMut(&mut Scopes, Vec<Value>) -> Result<Value>>;
+type LibFunction<'a> = Box<dyn FnMut(&mut Scopes, Vec<Value>) -> Result<Value> + 'a>;
 
 #[derive(Default)]
-pub struct Library {
-    pub functions: HashMap<String, LibFunction>,
+pub struct Library<'a> {
+    pub functions: HashMap<String, LibFunction<'a>>,
 }
 
 trait Eval {
@@ -183,8 +183,10 @@ impl Eval for IfStatement {
 
 impl Eval for BlockStatement {
     fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
-        for statement in &self.statements {
-            statement.eval(scopes, library)?;
+        if let Some(statements) = &self.statements {
+            for statement in &statements.0 {
+                statement.eval(scopes, library)?;
+            }
         }
         Ok(Value::Unit)
     }

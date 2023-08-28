@@ -122,6 +122,10 @@ impl speedy2d::window::WindowHandler for Game {
         }
     }
 
+    fn on_keyboard_char(&mut self, _helper: &mut WindowHelper<()>, unicode_codepoint: char) {
+        self.input.typed_text.push(unicode_codepoint);
+    }
+
     fn on_key_up(
         &mut self,
         _helper: &mut WindowHelper<()>,
@@ -219,12 +223,19 @@ impl speedy2d::window::WindowHandler for Game {
                     .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(", ");
-                get_screen_buffer(scopes).push_str(&output);
-                get_screen_buffer(scopes).push('\n');
+                let screen = get_screen_buffer(scopes);
+                screen.push_str(&output);
+                screen.push('\n');
                 Ok(Value::Unit)
             });
+            library_function!(library += input (_scopes, args) {
+                ensure!(args.is_empty(), "input() was not ment to be used with arguments!");
+                Ok(Value::String(self.input.typed_text.clone()))
+            });
             if let Err(err) = program.eval(&mut self.input.scopes, &mut library) {
-                get_screen_buffer(&mut self.input.scopes).push_str(&err.to_string());
+                let screen = get_screen_buffer(&mut self.input.scopes);
+                screen.push_str(&err.to_string());
+                screen.push('\n');
             }
 
             // * Draw terminal
@@ -274,6 +285,7 @@ impl speedy2d::window::WindowHandler for Game {
 
         self.input.jump = false;
         self.input.interact = false;
+        self.input.typed_text.clear();
         helper.request_redraw();
     }
 }

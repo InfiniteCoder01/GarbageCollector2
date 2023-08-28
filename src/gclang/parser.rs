@@ -303,9 +303,7 @@ pub(super) struct ArgDef {
 pub(super) struct IfStatement {
     _if: Token![if],
     pub(super) condition: Expression,
-    _lbk: Token![lbk],
     pub(super) statement: Statement,
-    _rbk: Token![rbk],
     pub(super) else_statement: Option<ElseStatement>,
 }
 
@@ -320,7 +318,7 @@ pub(super) struct ElseStatement {
 #[token(Token)]
 pub(super) struct BlockStatement {
     _lbk: Token![lbk],
-    pub(super) statements: Vec<Statement>,
+    pub(super) statements: Option<NonEmptySeq<Statement>>,
     _rbk: Token![rbk],
 }
 

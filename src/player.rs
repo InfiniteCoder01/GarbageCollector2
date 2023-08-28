@@ -52,39 +52,39 @@ impl Player {
         input: &mut Input,
         delta_time: f32,
     ) {
-        // if input.terminal.is_none() {
-        if input.editor {
-            self.velocity = input.wasd.into_f32() * 16.0 * 10.0;
-            let hover_tile =
-                (input.mouse + camera.offset).into_i32() / assets.tileset.tile_size.into_i32();
-            if let Some(tile) = level.tile_mut(hover_tile) {
-                if input.mouse_right {
-                    *tile = Tile::Empty;
-                } else if input.mouse_left {
-                    *tile = input.palette[input.palette_index];
+        if input.terminal.is_none() {
+            if input.editor {
+                self.velocity = input.wasd.into_f32() * 16.0 * 10.0;
+                let hover_tile =
+                    (input.mouse + camera.offset).into_i32() / assets.tileset.tile_size.into_i32();
+                if let Some(tile) = level.tile_mut(hover_tile) {
+                    if input.mouse_right {
+                        *tile = Tile::Empty;
+                    } else if input.mouse_left {
+                        *tile = input.palette[input.palette_index];
+                    }
+                    if !input.mouse_right {
+                        level.draw_tile(
+                            camera,
+                            assets,
+                            hover_tile.into_u32(),
+                            input.palette[input.palette_index],
+                        );
+                    }
                 }
-                if !input.mouse_right {
-                    level.draw_tile(
-                        camera,
-                        assets,
-                        hover_tile.into_u32(),
-                        input.palette[input.palette_index],
-                    );
+            } else {
+                let target_velocity = input.wasd.x as f32 * 16.0 * 6.0;
+                self.velocity.x += (target_velocity - self.velocity.x) * delta_time * 7.0;
+                self.velocity.y += 1000.0 * delta_time;
+                if input.jump && self.jumps > 0 {
+                    self.velocity.y = -300.0;
+                    self.jumps -= 1;
                 }
             }
-        } else {
-            let target_velocity = input.wasd.x as f32 * 16.0 * 6.0;
-            self.velocity.x += (target_velocity - self.velocity.x) * delta_time * 7.0;
-            self.velocity.y += 1000.0 * delta_time;
-            if input.jump && self.jumps > 0 {
-                self.velocity.y = -300.0;
-                self.jumps -= 1;
-            }
-        }
 
-        self.integrate(assets, level, input, Vec2::new_x(1.0), delta_time);
-        self.integrate(assets, level, input, Vec2::new_y(1.0), delta_time);
-        // }
+            self.integrate(assets, level, input, Vec2::new_x(1.0), delta_time);
+            self.integrate(assets, level, input, Vec2::new_y(1.0), delta_time);
+        }
         assets.player.draw_tile(camera, self.position, UVec2::ZERO);
     }
 

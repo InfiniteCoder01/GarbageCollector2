@@ -13,5 +13,16 @@ fn println(text: String) {
   screen_buffer = screen_buffer + text + "\n";
 }
 
-let bin = filesystem["bin"];
-eval(bin["bash"]);
+global state = "Waiting";
+
+if state == "Waiting" {
+  let input = input();
+  print(input);
+  if len(input) > 0 {
+    if input[len(input) - 1] == "\n" {
+      state = "Run";
+    }
+  }
+}
+
+println(state);
