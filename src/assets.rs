@@ -135,7 +135,7 @@ pub struct Input {
     pub palette: Vec<crate::level::Tile>,
     pub palette_index: usize,
 
-    pub env: crate::gclang::Environment,
+    pub scopes: crate::gclang::Scopes,
     pub terminal: Option<crate::gclang::Program>,
 }
 
@@ -156,7 +156,7 @@ impl Default for Input {
             palette: vec![Tile::Ground, Tile::Table, Tile::Terminal],
             palette_index: 0,
 
-            env: crate::gclang::Environment::new(),
+            scopes: crate::gclang::Scopes::default(),
             terminal: None,
         }
     }

@@ -1,73 +1,25 @@
-use std::collections::HashMap;
-
 mod executor;
 mod parser;
+mod std;
 
-// * ------------------------------------- Spec ------------------------------------- * //
-#[derive(Debug)]
-pub struct Program {
-    scope: Scope,
+pub use executor::Library;
+pub use executor::Value;
+pub use parser::Program;
+pub use executor::Scopes;
+
+#[macro_export]
+macro_rules! library_function {
+    ($library: ident += $name: ident ($scopes: ident, $args: ident) $function: block) => {
+        $library.functions.insert(
+            String::from(stringify!($name)),
+            Box::from(|$scopes: &mut gclang::Scopes, $args: Vec<Value>| $function),
+        );
+    };
 }
 
-#[derive(Debug, Default)]
-pub struct Scope {
-    statements: Vec<Statement>,
-}
-
-#[derive(Debug)]
-pub enum Statement {
-    GlobalVariable(String, Expression),
-    Expression(Expression),
-}
-
-#[derive(Debug)]
-pub enum Expression {
-    Constant(Value),
-    Variable(String),
-    Assignment(String, Box<Expression>),
-    Binary(Box<Expression>, String, Box<Expression>),
-    FunctionCall {
-        name: String,
-        arguments: Vec<Expression>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Value {
-    Int(i32),
-    String(String),
-    Bool(bool),
-    Void,
-}
-
-// * Exec
-#[derive(Default)]
-pub struct Environment {
-    pub global: HashMap<String, Value>,
-    pub local: Vec<HashMap<String, Value>>,
-}
-
-pub type BuiltinFunction = Box<dyn FnMut(&mut Environment, Vec<Value>) -> Value>;
-
-#[derive(Default)]
-pub struct Builtins {
-    pub functions: HashMap<String, BuiltinFunction>,
-}
-
-impl ToString for Value {
-    fn to_string(&self) -> String {
-        match self {
-            Value::Int(value) => value.to_string(),
-            Value::String(value) => value.clone(),
-            Value::Bool(value) => value.to_string(),
-            Value::Void => "Nothing".to_owned(),
-        }
-    }
-}
+pub use library_function;
 
 // * ----------------------------------- Programs ----------------------------------- * //
-impl Program {
-    pub fn bash() -> Self {
-        Program::parse(include_str!("bash.gc")).expect("Failed to build bash")
-    }
+pub fn bash() -> Program {
+    Program::parse(include_str!("programs/bash.gc"))
 }

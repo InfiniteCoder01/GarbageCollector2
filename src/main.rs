@@ -1,4 +1,3 @@
-#![feature(exclusive_range_pattern)]
 pub mod assets;
 pub mod gclang;
 pub mod level;
@@ -15,7 +14,8 @@ fn main() {
     #[cfg(not(target_family = "wasm"))]
     {
         let window =
-            speedy2d::Window::new_centered("Title", (640, 480)).expect("Failed to init window");
+            speedy2d::Window::new_centered("Garbage Collector 2: Nullptr revenge", (640, 480))
+                .expect("Failed to init window");
         window.run_loop(handler);
     }
 }
@@ -53,7 +53,7 @@ impl Game {
         ];
         Self {
             assets: None,
-            player: player::Player::new(Vec2::ZERO),
+            player: player::Player::new(Vec2::new(16.0, 24.0)),
             levels,
             level_index: 0,
 
@@ -200,21 +200,20 @@ impl speedy2d::window::WindowHandler for Game {
         }
 
         if let Some(program) = &mut self.input.terminal {
-            let mut builtins = gclang::Builtins::default();
-            builtins.functions.insert(
-                "print".to_owned(),
-                Box::new(|env, args: Vec<gclang::Value>| {
-                    let output = args
-                        .iter()
-                        .map(|arg| arg.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    env.get_screen_buffer().push_str(&output);
-                    gclang::Value::Void
-                }),
-            );
+            use gclang::Value;
+            get_screen_buffer(&mut self.input.scopes);
 
-            program.execute(&mut self.input.env, &mut builtins).unwrap();
+            let mut library = gclang::Library::with_std();
+            library_function!(library += print (scopes, args) {
+                let output = args
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                get_screen_buffer(scopes).push_str(&output);
+                Ok(Value::Unit)
+            });
+            program.eval(&mut self.input.scopes, &mut library).unwrap();
 
             // * Draw terminal
             let size = assets.terminal.size().into_f32()
@@ -226,7 +225,8 @@ impl speedy2d::window::WindowHandler for Game {
             );
 
             let (screen_width, screen_height) = (54, 28);
-            let screen = self.input.env.get_screen_buffer();
+            let screen = get_screen_buffer(&mut self.input.scopes);
+
             let mut line_width = 0;
             let mut new_screen = String::new();
             for ch in screen.chars() {
@@ -266,20 +266,18 @@ impl speedy2d::window::WindowHandler for Game {
     }
 }
 
-impl gclang::Environment {
-    pub fn new() -> Self {
-        let mut this = Self::default();
-        this.global.insert(
-            String::from("screen_buffer"),
-            gclang::Value::String(String::new()),
-        );
-        this
+fn get_screen_buffer(scopes: &mut gclang::Scopes) -> &mut String {
+    let screen = scopes.get_global_or_insert(
+        "screen_buffer",
+        gclang::Value::String(String::from("Net Terminal V1.0\n")),
+    );
+
+    if !matches!(screen, gclang::Value::String(_)) {
+        *screen = gclang::Value::String(String::from("Refreshing buffer, it was of wrong type.\n"));
     }
 
-    pub fn get_screen_buffer(&mut self) -> &mut String {
-        match self.get_global("screen_buffer", gclang::Value::String("".to_owned())) {
-            gclang::Value::String(buffer) => buffer,
-            _ => panic!("Screen buffer is not a string!"),
-        }
+    match screen {
+        gclang::Value::String(screen) => screen,
+        _ => unreachable!(),
     }
 }

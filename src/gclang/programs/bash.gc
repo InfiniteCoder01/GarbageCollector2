@@ -1,0 +1,7 @@
+global filesystem = {
+  "home" = {};
+  "bin" = {
+    "bash" = "print(\"You want another shell? :(\");";
+  };
+};
+print(filesystem["bin"]);

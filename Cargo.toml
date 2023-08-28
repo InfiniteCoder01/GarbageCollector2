@@ -7,6 +7,7 @@ edition = "2021"
 anyhow = "1.0.75"
 bidivec = "0.1.0"
 enum-lexer = "0.1.0"
+laps = { version = "0.1.2", features = ["macros"] }
 ron = "0.8.1"
 serde = { version = "1.0.188", features = ["derive"] }
 speedy2d = { git = "https://github.com/InfiniteCoder01/Speedy2D.git", branch = "ImprovedVectors" }

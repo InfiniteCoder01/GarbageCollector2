@@ -1,3 +1,0 @@
-// global current_directory = "/home";
-// print(current_directory + "\n>");
-print(1 == 1 false);
