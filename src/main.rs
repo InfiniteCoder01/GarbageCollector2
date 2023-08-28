@@ -123,7 +123,10 @@ impl speedy2d::window::WindowHandler for Game {
     }
 
     fn on_keyboard_char(&mut self, _helper: &mut WindowHelper<()>, unicode_codepoint: char) {
-        self.input.typed_text.push(unicode_codepoint);
+        self.input.typed_text.push(match unicode_codepoint {
+            '\r' => '\n',
+            codepoint => codepoint,
+        });
     }
 
     fn on_key_up(
@@ -247,7 +250,7 @@ impl speedy2d::window::WindowHandler for Game {
                 &assets.terminal,
             );
 
-            let (screen_width, screen_height) = (54, 28);
+            let (screen_width, screen_height) = (52, 27);
             let screen = get_screen_buffer(&mut self.input.scopes);
 
             let mut line_width = 0;
