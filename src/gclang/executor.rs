@@ -409,7 +409,15 @@ impl Eval for FunctionCall {
         let args = args
             .map(|e| e.eval(scopes, library))
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        if let Some(function) = library.functions.get_mut(self.name.ident()) {
+        if self.name.ident() == "eval" {
+            match &args[..] {
+                [Value::String(code)] => {
+                    Program::parse(code).eval(scopes, library)?;
+                    Ok(Value::Unit)
+                }
+                _ => bail!(r#"Usage: eval("some_global_variable = \"Evaluated\";");"#),
+            }
+        } else if let Some(function) = library.functions.get_mut(self.name.ident()) {
             function(scopes, args)
         } else {
             let function = scopes.get_function(self.name.ident())?.clone();

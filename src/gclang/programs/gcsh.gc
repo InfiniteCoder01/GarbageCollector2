@@ -1,0 +1,36 @@
+global filesystem = {
+  "home" = {};
+  "bin" = {
+    "gcsh" = builtin_file("gcsh.gc");
+    "bash" = builtin_file("bash.gc");
+    "fish" = builtin_file("fish.gc");
+    "sh" = builtin_file("sh.gc");
+  };
+};
+
+global gcsh_state = "Run";
+global gcsh_command = "";
+
+let input = input();
+if gcsh_state == "Run" {
+  print("/home\n> ");
+  gcsh_state = "Prompt";
+} else if gcsh_state == "Prompt" {
+  if len(input) > 0 {
+    print(input);
+    if contains(input, "\n") {
+      let bin = filesystem["bin"];
+      let cmd = gcsh_command;
+      gcsh_state = "Run";
+      gcsh_command = "";
+      if contains(bin, cmd) {
+        eval(bin[cmd]);
+      } else {
+        println("Command '" + cmd + "' not found!");
+      }
+    } else {
+      gcsh_command = gcsh_command + input;
+    }
+  }
+}
+

@@ -1,6 +1,6 @@
 mod executor;
 mod parser;
-mod std;
+mod gcstd;
 
 pub use executor::Library;
 pub use executor::Value;
@@ -34,5 +34,5 @@ pub use ensure_type;
 
 // * ----------------------------------- Programs ----------------------------------- * //
 pub fn bash() -> Program {
-    Program::parse(include_str!("programs/bash.gc"))
+    Program::parse(include_str!("programs/gcsh.gc"))
 }
