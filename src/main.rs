@@ -14,7 +14,7 @@ fn main() {
     #[cfg(not(target_family = "wasm"))]
     {
         let window =
-            speedy2d::Window::new_centered("Garbage Collector 2: Nullptr revenge", (640, 480))
+            speedy2d::Window::new_centered("Garbage Collector 2: Nullptr revenge", (960, 720))
                 .expect("Failed to init window");
         window.run_loop(handler);
     }
@@ -217,7 +217,7 @@ impl speedy2d::window::WindowHandler for Game {
 
             // * Draw terminal
             let size = assets.terminal.size().into_f32()
-                * (self.size.y as f32 / 1.5 / assets.terminal.size().y as f32);
+                * (self.size.y as f32 / 1.2 / assets.terminal.size().y as f32);
             let tl = (self.size.into_f32() - size) / 2.0;
             graphics.draw_rectangle_image(
                 speedy2d::shape::Rectangle::new(tl, tl + size),

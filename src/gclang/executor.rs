@@ -1,3 +1,5 @@
+use crate::ensure_type;
+
 use super::parser::*;
 use anyhow::*;
 use std::collections::{BTreeMap, HashMap};
@@ -95,9 +97,37 @@ impl Eval for Statement {
                 }
                 Ok(Value::Unit)
             }
+            Statement::If(statement) => statement.eval(scopes, library),
+            Statement::Block(statement) => statement.eval(scopes, library),
             Statement::Expression(expr) => expr.eval(scopes, library),
             Statement::End(_) => Ok(Value::Never),
         }
+    }
+}
+
+impl Eval for IfStatement {
+    fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
+        let condition = self.condition.eval(scopes, library)?;
+        let condition = ensure_type!(
+            condition,
+            Bool,
+            "If can be only used with condition that returns bool"
+        );
+        if condition {
+            self.statement.eval(scopes, library)?;
+        } else if let Some(else_statement) = &self.else_statement {
+            else_statement.statement.eval(scopes, library)?;
+        }
+        Ok(Value::Unit)
+    }
+}
+
+impl Eval for BlockStatement {
+    fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
+        for statement in &self.statements {
+            statement.eval(scopes, library)?;
+        }
+        Ok(Value::Unit)
     }
 }
 
@@ -411,12 +441,12 @@ impl AssignTo for Access {
 }
 
 impl Program {
-    pub fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
+    pub fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<()> {
         scopes.local.push(HashMap::new());
         for statement in &self.statements {
             statement.eval(scopes, library)?;
         }
         scopes.local.pop();
-        Ok(Value::Never)
+        Ok(())
     }
 }

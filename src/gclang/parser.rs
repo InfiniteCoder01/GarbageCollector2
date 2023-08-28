@@ -13,7 +13,7 @@ use std::{fmt, str::FromStr};
 enum TokenKind {
     #[skip(r"\s+")]
     _Skip,
-    #[regex(r"global|let")]
+    #[regex(r"global|let|if|else")]
     Keyword(Keyword),
     #[regex(r"[_a-zA-Z][_a-zA-Z0-9]*")]
     Ident(String),
@@ -33,6 +33,8 @@ enum TokenKind {
 enum Keyword {
     Global,
     Let,
+    If,
+    Else,
 }
 
 impl FromStr for Keyword {
@@ -40,8 +42,10 @@ impl FromStr for Keyword {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
-            "global" => Ok(Keyword::Global),
-            "let" => Ok(Keyword::Let),
+            "global" => Ok(Self::Global),
+            "let" => Ok(Self::Let),
+            "if" => Ok(Self::If),
+            "else" => Ok(Self::Else),
             _ => Err(()),
         }
     }
@@ -52,6 +56,8 @@ impl fmt::Display for Keyword {
         match self {
             Self::Global => write!(f, "global"),
             Self::Let => write!(f, "let"),
+            Self::If => write!(f, "if"),
+            Self::Else => write!(f, "else"),
         }
     }
 }
@@ -146,6 +152,8 @@ token_ast! {
     [ident] => { kind: TokenKind::Ident(_), prompt: "identifier" },
     [let] => { kind: TokenKind::Keyword(Keyword::Let) },
     [global] => { kind: TokenKind::Keyword(Keyword::Global) },
+    [if] => { kind: TokenKind::Keyword(Keyword::If) },
+    [else] => { kind: TokenKind::Keyword(Keyword::Else) },
     [lint] => { kind: TokenKind::Int(_), prompt: "integer literal" },
     [lstring] => { kind: TokenKind::String(_), prompt: "string literal" },
     [+] => { kind: TokenKind::Operator(Operator::Add) },
@@ -214,8 +222,36 @@ pub(super) enum Statement {
         Token![;],
     ),
     LocalDecl(Token![let], Token![ident], Token![=], Expression, Token![;]),
+    If(Box<IfStatement>),
+    Block(BlockStatement),
     Expression(ExpressionStatement),
     End(Token![eof]),
+}
+
+#[derive(Parse, Debug)]
+#[token(Token)]
+pub(super) struct IfStatement {
+    _if: Token![if],
+    pub(super) condition: Expression,
+    _lbk: Token![lbk],
+    pub(super) statement: Statement,
+    _rbk: Token![rbk],
+    pub(super) else_statement: Option<ElseStatement>,
+}
+
+#[derive(Parse, Debug)]
+#[token(Token)]
+pub(super) struct ElseStatement {
+    _else: Token![else],
+    pub(super) statement: Statement,
+}
+
+#[derive(Parse, Debug)]
+#[token(Token)]
+pub(super) struct BlockStatement {
+    _lbk: Token![lbk],
+    pub(super) statements: Vec<Statement>,
+    _rbk: Token![rbk],
 }
 
 #[derive(Debug)]
