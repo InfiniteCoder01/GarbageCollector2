@@ -21,8 +21,22 @@ impl ToString for Value {
             Value::Int(value) => value.to_string(),
             Value::Bool(value) => value.to_string(),
             Value::String(value) => value.clone(),
-            Value::Array(value) => format!("{:#?}", value),
-            Value::Table(value) => format!("{:#?}", value),
+            Value::Array(value) => format!(
+                "[{}]",
+                value
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Value::Table(value) => format!(
+                "{{\n{}}}",
+                value
+                    .iter()
+                    .map(|(key, value)| format!("{} = {};\n", key.to_string(), value.to_string()))
+                    .collect::<Vec<_>>()
+                    .join("")
+            ),
             Value::Unit => "Unit".to_owned(),
             Value::Never => "Never".to_owned(),
         }
