@@ -11,7 +11,7 @@ use std::{fmt, str::FromStr};
 #[token_kind]
 #[derive(Debug, Tokenize)]
 enum TokenKind {
-    #[skip(r"\s+")]
+    #[skip(r"\s+|//.+\n")]
     _Skip,
     #[regex(r"global|let|fn|if|else")]
     Keyword(Keyword),
