@@ -620,9 +620,9 @@ impl Eval for FunctionCall {
                     Ok(Value::Unit)
                 }
                 _ => bail!(concat!(
-                    r#"Usage: for([1, 2, 3], fn (number: int) {{ println(number); }})\n"#,
-                    r#"or for(0, 2, fn (index: int) {{ println(index); }})\n"#,
-                    r#"or for({ a = 1; b = 2; }, fn (key: String, value: int) {{ println(key, value); }})"#,
+                    r#"Usage: for([1, 2, 3], fn (number: int) {{ println(number); }});\n"#,
+                    r#"or for(0, 2, fn (index: int) {{ println(index); }});\n"#,
+                    r#"or for({ a = 1; b = 2; }, fn (key: String, value: int) {{ println(key, value); }});"#,
                 )),
             }
         } else if let Some(function) = library.functions.get_mut(self.name.ident()) {

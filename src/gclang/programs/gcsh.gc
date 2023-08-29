@@ -16,26 +16,41 @@ let input = input();
 if gcsh_state == "Run" {
     print("/home\n> ");
     gcsh_state = "Prompt";
+    gcsh_command = "";
 } else if gcsh_state == "Prompt" {
     if len(input) > 0 {
-        print(input);
-        if contains(input, "\n") {
+        if contains(input, "\x08") {
+            if len(gcsh_command) > 0 {
+                screen_buffer = pop(screen_buffer);
+                gcsh_command = pop(gcsh_command);
+            }
+        } else if contains(input, "\n") {
+            println();
             let bin = filesystem["bin"];
             let args = [];
 
-            for(gcsh_command, fn (char: String) {
-                println(char);
-            });
+            {
+                let token = "";
+                for(gcsh_command, fn (char: String) {
+                    if char == " " {
+                        args = args + [token];
+                        token = "";
+                    } else {
+                        token = token + char;
+                    }
+                });
+                args = args + [token];
+            }
 
             gcsh_state = "Run";
-            gcsh_command = "";
-            if contains(bin, cmd) {
-                eval(bin[cmd]);
+            if contains(bin, args[0]) {
+                eval(bin[args[0]]);
             } else {
-                println("Command '" + cmd + "' not found!");
+                println("Command '" + args[0] + "' not found!");
             }
         } else {
             gcsh_command = gcsh_command + input;
+            print(input);
         }
     }
 }

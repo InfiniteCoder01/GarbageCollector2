@@ -12,6 +12,37 @@ impl Library<'_> {
                 _ => bail!(r#"Usage: len("Some text") or len({{0 = "Some table";}})"#)
             })
         });
+        library_function!(library += pop(_scopes, args) {
+            Ok(match &args[..] {
+                [Value::String(value)] => Value::String(value[..value.len().max(1) - 1].to_owned()),
+                [Value::Array(value)] => Value::Array(value[..value.len().max(1) - 1].to_owned()),
+                _ => bail!(r#"Usage: string = pop(string);"#)
+            })
+        });
+        library_function!(library += remove(_scopes, args) {
+            let mut args = args;
+            Ok(match args.as_mut_slice() {
+                [Value::String(value), Value::Int(index)] => {
+                    if *index < 0 || *index as usize > value.len() {
+                        bail!("Remove index is out of bounds! Index: {}", index);
+                    }
+                    value.remove(*index as _);
+                    Value::String(value.clone())
+                }
+                [Value::Array(value), Value::Int(index)] => {
+                    if *index < 0 || *index as usize > value.len() {
+                        bail!("Remove index is out of bounds! Index: {}", index);
+                    }
+                    value.remove(*index as _);
+                    Value::Array(value.clone())
+                }
+                [Value::Table(value), index] => {
+                    value.remove(index).context("Removing non-existing key from table!")?;
+                    Value::Table(value.clone())
+                }
+                _ => bail!(r#"Usage: string = remove("Some text", 8); or table = remove({{ a = 1; }}, "a");"#)
+            })
+        });
         library_function!(library += contains(_scopes, args) {
             Ok(match &args[..] {
                 [Value::String(value), Value::String(key)] => Value::Bool(value.contains(key)),
