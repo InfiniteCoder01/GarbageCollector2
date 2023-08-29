@@ -21,10 +21,10 @@ if gcsh_state == "Run" {
         print(input);
         if contains(input, "\n") {
             let bin = filesystem["bin"];
-            let cmd = gcsh_command;
+            let args = [];
 
-            for(0, 2, fn (index: int) {
-                println(index);
+            for(gcsh_command, fn (char: String) {
+                println(char);
             });
 
             gcsh_state = "Run";

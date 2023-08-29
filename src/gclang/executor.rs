@@ -288,11 +288,13 @@ impl Eval for IfStatement {
 
 impl Eval for BlockStatement {
     fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
+        scopes.local.push(StackFrame::default());
         if let Some(statements) = &self.statements {
             for statement in &statements.0 {
                 statement.eval(scopes, library)?;
             }
         }
+        scopes.local.pop();
         Ok(Value::Unit)
     }
 }
