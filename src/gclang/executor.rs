@@ -9,6 +9,7 @@ pub enum Value {
     Int(i32),
     Bool(bool),
     String(String),
+    Array(Vec<Value>),
     Table(BTreeMap<Value, Value>),
     Unit,
     Never,
@@ -20,9 +21,39 @@ impl ToString for Value {
             Value::Int(value) => value.to_string(),
             Value::Bool(value) => value.to_string(),
             Value::String(value) => value.clone(),
+            Value::Array(value) => format!("{:#?}", value),
             Value::Table(value) => format!("{:#?}", value),
             Value::Unit => "Unit".to_owned(),
             Value::Never => "Never".to_owned(),
+        }
+    }
+}
+
+impl Value {
+    fn matches(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Int(_), Value::Int(_)) => true,
+            (Value::Bool(_), Value::Bool(_)) => true,
+            (Value::String(_), Value::String(_)) => true,
+            (Value::Array(lhs), Value::Array(rhs)) => {
+                if !lhs.is_empty() && !rhs.is_empty() {
+                    lhs[0].matches(&rhs[0])
+                } else {
+                    true
+                }
+            }
+            (Value::Table(lhs), Value::Table(rhs)) => {
+                if !lhs.is_empty() && !rhs.is_empty() {
+                    let lhs = lhs.iter().next().unwrap();
+                    let rhs = rhs.iter().next().unwrap();
+                    lhs.0.matches(rhs.0) && lhs.1.matches(rhs.1)
+                } else {
+                    true
+                }
+            }
+            (Value::Unit, Value::Unit) => true,
+            (Value::Never, Value::Never) => true,
+            _ => false,
         }
     }
 }
@@ -246,41 +277,68 @@ eval_expression! {
 
 eval_expression! {
     EqExp lhs rhs
-    EqOps::Eq => Value::Bool(lhs == rhs);
-    EqOps::Ne => Value::Bool(lhs != rhs);
+    EqOps::Eq => {
+        if !lhs.matches(&rhs) {
+            bail!("Type mismatch in equality!");
+        }
+        Value::Bool(lhs == rhs)
+    };
+    EqOps::Ne => {
+        if !lhs.matches(&rhs) {
+            bail!("Type mismatch in non-equality!");
+        }
+        Value::Bool(lhs != rhs)
+    };
 }
 
 eval_expression! {
     RelExp lhs rhs
     RelOps::Lt => match (lhs, rhs) {
         (Value::Int(lhs), Value::Int(rhs)) => Value::Bool(lhs < rhs),
-        _ => bail!("Type mismatch!"),
+        _ => bail!("Type mismatch in operator '<'!"),
     };
     RelOps::Gt => match (lhs, rhs) {
         (Value::Int(lhs), Value::Int(rhs)) => Value::Bool(lhs > rhs),
-        _ => bail!("Type mismatch!"),
+        _ => bail!("Type mismatch in operator '>'!"),
     };
     RelOps::Le => match (lhs, rhs) {
         (Value::Int(lhs), Value::Int(rhs)) => Value::Bool(lhs <= rhs),
-        _ => bail!("Type mismatch!"),
+        _ => bail!("Type mismatch in operator '<='!"),
     };
     RelOps::Ge => match (lhs, rhs) {
         (Value::Int(lhs), Value::Int(rhs)) => Value::Bool(lhs >= rhs),
-        _ => bail!("Type mismatch!"),
+        _ => bail!("Type mismatch in operator '>='!"),
     };
 }
 
 eval_expression! {
     AddExp lhs rhs
-    AddOps::Add => match (lhs, rhs) {
-        (Value::Int(lhs), Value::Int(rhs)) => Value::Int(lhs + rhs),
-        (Value::String(lhs), rhs) => Value::String(lhs + &rhs.to_string()),
-        (lhs, Value::String(rhs)) => Value::String(lhs.to_string() + &rhs),
-        _ => bail!("Type mismatch!"),
+    AddOps::Add =>{
+        let matches = lhs.matches(&rhs);
+        match (lhs, rhs) {
+            (Value::Int(lhs), Value::Int(rhs)) => Value::Int(lhs + rhs),
+            (Value::String(lhs), rhs) => Value::String(lhs + &rhs.to_string()),
+            (lhs, Value::String(rhs)) => Value::String(lhs.to_string() + &rhs),
+            (Value::Table(mut lhs), Value::Table(mut rhs)) => {
+                if !matches {
+                    bail!("Type mismatch when joining tables!");
+                }
+                lhs.append(&mut rhs);
+                Value::Table(lhs)
+            },
+            (Value::Array(mut lhs), Value::Array(mut rhs)) => {
+                if !matches {
+                    bail!("Type mismatch when joining arrays!");
+                }
+                lhs.append(&mut rhs);
+                Value::Array(lhs)
+            },
+            _ => bail!("Type mismatch in operator '+'!"),
+        }
     };
     AddOps::Sub => match (lhs, rhs) {
         (Value::Int(lhs), Value::Int(rhs)) => Value::Int(lhs - rhs),
-        _ => bail!("Type mismatch!"),
+        _ => bail!("Type mismatch in operator '-'!"),
     };
 }
 
@@ -289,6 +347,10 @@ eval_expression! {
     MulOps::Mul => match (lhs, rhs) {
         (Value::Int(lhs), Value::Int(rhs)) => Value::Int(lhs * rhs),
         (Value::String(lhs), Value::Int(rhs)) => Value::String(lhs.repeat(rhs as _)),
+        (Value::Array(lhs), Value::Int(rhs)) => {
+            let count = lhs.len() * rhs as usize;
+            Value::Array(lhs.into_iter().cycle().take(count).collect())
+        }
         _ => bail!("Type mismatch!"),
     };
     MulOps::Div => match (lhs, rhs) {
@@ -331,6 +393,7 @@ impl Eval for PrimaryExp {
             PrimaryExp::Access(access) => access.eval(scopes, library)?,
             PrimaryExp::LInt(value) => Value::Int(value.inner() as i32),
             PrimaryExp::LString(value) => Value::String(value.inner().to_owned()),
+            PrimaryExp::Array(array) => array.eval(scopes, library)?,
             PrimaryExp::Table(table) => table.eval(scopes, library)?,
         })
     }
@@ -342,22 +405,41 @@ impl Eval for ParenExp {
     }
 }
 
+impl Eval for Array {
+    fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
+        let mut array = Vec::<Value>::with_capacity(self.values.0.len());
+        for (index, value) in self.values.0.iter().enumerate() {
+            let value = value.eval(scopes, library)?;
+            if index > 0 && !array[0].matches(&value) {
+                bail!("Array has mismatched types of elements!");
+            }
+            array.push(value);
+        }
+        Ok(Value::Array(array))
+    }
+}
+
 impl Eval for Table {
     fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
         let mut table = BTreeMap::new();
         if let Some(seq) = &self.values {
             for entry in &seq.0 {
-                match entry {
-                    TableEntry::Property(index, _, value, _) => {
-                        table.insert(
-                            Value::String(index.ident().to_owned()),
-                            value.eval(scopes, library)?,
-                        );
-                    }
+                let (key, value) = match entry {
+                    TableEntry::Property(index, _, value, _) => (
+                        Value::String(index.ident().to_owned()),
+                        value.eval(scopes, library)?,
+                    ),
                     TableEntry::Indexed(index, _, value, _) => {
-                        table.insert(index.eval(scopes, library)?, value.eval(scopes, library)?);
+                        (index.eval(scopes, library)?, value.eval(scopes, library)?)
+                    }
+                };
+                if !table.is_empty() {
+                    let (key0, value0) = table.iter().next().unwrap();
+                    if !key.matches(key0) || !value.matches(value0) {
+                        bail!("Table has mismatched types of keys or values!");
                     }
                 }
+                table.insert(key, value);
             }
         }
         Ok(Value::Table(table))
@@ -378,9 +460,13 @@ impl Eval for Access {
                 (Value::String(value), Value::Int(index)) => Value::String(
                     value
                         .get(index as usize..=index as usize)
-                        .context(format!("Index outside of the range! Index: '{}'", index))?
+                        .context(format!("String index out of bounds! Index: '{}'", index))?
                         .to_owned(),
                 ),
+                (Value::Array(value), Value::Int(index)) => value
+                    .get(index as usize)
+                    .context(format!("Array index out of bounds! Index: {:?}", index))?
+                    .clone(),
                 (Value::Table(value), index) => value
                     .get(&index)
                     .context(format!("Index not found! Index: {:?}", index))?
@@ -435,8 +521,8 @@ impl Eval for FunctionCall {
                     (Value::String(_), Type::String) => (),
                     (Value::Table(_), Type::Table) => (),
                     _ => bail!(
-                        "Function argument type mismatch when calling function {}!",
-                        self.name.ident()
+                        "Function argument type mismatch when calling function '{}' in argument '{}'!",
+                        self.name.ident(), arg_def.name.ident(),
                     ),
                 }
                 scopes
@@ -492,7 +578,7 @@ impl AssignTo for PrimaryExp {
     fn assign(&self, scopes: &mut Scopes, library: &mut Library, value: Value) -> Result<()> {
         match self {
             PrimaryExp::Access(expr) => expr.assign(scopes, library, value),
-            _ => bail!("Can't assign to this!"),
+            _ => bail!("Can't assign to this primary!"),
         }
     }
 }
@@ -510,12 +596,22 @@ impl AssignTo for Access {
             match (target, index, value) {
                 (Value::String(target), Value::Int(index), Value::String(value)) => {
                     if index < 0 || index as usize >= target.len() {
-                        bail!("Index outside of the range! Index: '{}'", index);
+                        bail!("String index out of bounds! Index: {}", index);
                     }
                     target.replace_range(index as usize..=index as usize, &value);
                 }
                 (Value::Table(target), index, value) => {
                     target.insert(index, value);
+                }
+                (Value::Array(target), Value::Int(index), value) => {
+                    if index < 0 || index as usize >= target.len() {
+                        bail!("Array index out of bounds! Index: {}", index);
+                    }
+                    let target = target.get_mut(index as usize).unwrap();
+                    if !target.matches(&value) {
+                        bail!("Type mismatch in assignment!");
+                    }
+                    *target = value;
                 }
                 (target, index, value) => bail!(
                     "You can't assign to index {:?}[{:?}] = {:?}, type mismatch!",
@@ -527,12 +623,8 @@ impl AssignTo for Access {
             return Ok(());
         }
 
-        match (&target, &value) {
-            (Value::Int(_), Value::Int(_)) => (),
-            (Value::Bool(_), Value::Bool(_)) => (),
-            (Value::String(_), Value::String(_)) => (),
-            (Value::Table(_), Value::Table(_)) => (),
-            _ => bail!("Type mismatch in assignment!"),
+        if !target.matches(&value) {
+            bail!("Type mismatch in assignment!");
         }
         *target = value;
         Ok(())

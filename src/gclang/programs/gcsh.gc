@@ -3,8 +3,9 @@ global filesystem = {
   "bin" = {
     "gcsh" = builtin_file("gcsh.gc");
     "bash" = builtin_file("bash.gc");
-    "fish" = builtin_file("fish.gc");
-    "sh" = builtin_file("sh.gc");
+    "fish" = builtin_file("bash.gc");
+    "zsh" = builtin_file("bash.gc");
+    "sh" = builtin_file("bash.gc");
   };
 };
 

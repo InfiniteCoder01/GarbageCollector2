@@ -424,6 +424,7 @@ pub(super) enum PrimaryExp {
     Access(Access),
     LInt(Token![lint]),
     LString(Token![lstring]),
+    Array(Array),
     Table(Table),
 }
 
@@ -433,6 +434,14 @@ pub(super) struct ParenExp {
     _lpr: Token![lpr],
     pub(super) exp: Expression,
     _rpr: Token![rpr],
+}
+
+#[derive(Parse, Clone, Spanned, Debug)]
+#[token(Token)]
+pub(super) struct Array {
+    _lbc: Token![lbc],
+    pub(super) values: SepSeq<Expression, Token![,]>,
+    _rbc: Token![rbc],
 }
 
 #[derive(Parse, Clone, Spanned, Debug)]
