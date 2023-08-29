@@ -280,7 +280,7 @@ impl speedy2d::window::WindowHandler for Game {
 
             graphics.draw_text(
                 tl + size / Vec2::new(17.0, 14.0),
-                Color::GREEN, // TODO: Colored text
+                Color::GREEN, // TODO: Colored text via \x1b\xRR\xGG\xBB, to reset: \x18
                 &assets.font.layout_text(
                     &screen
                         .split_inclusive('\n')
