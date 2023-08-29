@@ -284,10 +284,22 @@ pub(super) enum Statement {
 pub(super) struct FnDecl {
     _fn: Token![fn],
     pub(super) name: Token![ident],
-    _lpr: Token![lpr],
+    pub(super) block: FnBlock,
+}
+
+#[derive(Parse, Clone, Debug)]
+#[token(Token)]
+pub(super) struct FnBlock {
+    lpr: Token![lpr],
     pub(super) args: SepSeq<ArgDef, Token![,]>,
-    _rpr: Token![rpr],
+    rpr: Token![rpr],
     pub(super) statement: Statement,
+}
+
+impl Spanned for FnBlock {
+    fn span(&self) -> laps::span::Span {
+        self.lpr.span().into_end_updated(self.rpr.span())
+    }
 }
 
 #[derive(Parse, Clone, Debug)]
@@ -426,6 +438,7 @@ pub(super) enum PrimaryExp {
     LString(Token![lstring]),
     Array(Array),
     Table(Table),
+    Lambda(Token![fn], FnBlock),
 }
 
 #[derive(Parse, Clone, Spanned, Debug)]
@@ -499,17 +512,20 @@ pub struct Program {
 }
 
 impl Program {
-    pub fn parse(source: &str) -> Self {
+    pub fn parse(source: &str) -> anyhow::Result<Self> {
         let reader = Reader::from(source);
         let lexer = TokenKind::lexer(reader);
         let mut tokens = TokenBuffer::new(lexer);
         let mut statements = Vec::new();
         loop {
-            match tokens.parse::<Statement>().unwrap() {
+            match tokens
+                .parse::<Statement>()
+                .map_err(|_| anyhow::anyhow!("Compilation error!"))?
+            {
                 Statement::End(_) => break,
                 statement => statements.push(statement),
             }
         }
-        Self { statements }
+        Ok(Self { statements })
     }
 }

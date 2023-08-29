@@ -11,6 +11,7 @@ pub enum Value {
     String(String),
     Array(Vec<Value>),
     Table(BTreeMap<Value, Value>),
+    Function(Function),
     Unit,
     Never,
 }
@@ -37,6 +38,7 @@ impl ToString for Value {
                     .collect::<Vec<_>>()
                     .join("")
             ),
+            Value::Function(function) => format!("{:#?}", function),
             Value::Unit => "Unit".to_owned(),
             Value::Never => "Never".to_owned(),
         }
@@ -65,6 +67,7 @@ impl Value {
                     true
                 }
             }
+            (Value::Function(_), Value::Function(_)) => true,
             (Value::Unit, Value::Unit) => true,
             (Value::Never, Value::Never) => true,
             _ => false,
@@ -84,10 +87,60 @@ struct StackFrame {
     functions: HashMap<String, Function>,
 }
 
-#[derive(Clone)]
-struct Function {
+#[derive(Clone, Debug)]
+pub struct Function {
     args: Vec<ArgDef>,
     statement: Statement,
+}
+impl Function {
+    fn eval(&self, scopes: &mut Scopes, library: &mut Library, args: Vec<Value>) -> Result<Value> {
+        ensure!(
+            args.len() == self.args.len(),
+            "Function argument count mismatch!",
+        );
+        scopes.local.push(StackFrame::default());
+        for (index, arg) in args.into_iter().enumerate() {
+            let arg_def = &self.args[index];
+            match (&arg, arg_def.arg_type.inner()) {
+                (Value::Int(_), Type::Int) => (),
+                (Value::Bool(_), Type::Bool) => (),
+                (Value::String(_), Type::String) => (),
+                (Value::Table(_), Type::Table) => (),
+                _ => bail!(
+                    "Function argument type mismatch in argument '{}'!",
+                    arg_def.name.ident(),
+                ),
+            }
+            scopes
+                .local
+                .last_mut()
+                .context("Internal error: nowhere to create an argument variable!")?
+                .variables
+                .insert(arg_def.name.ident().to_owned(), arg);
+        }
+        self.statement.eval(scopes, library)?;
+        scopes.local.pop();
+        Ok(Value::Unit)
+    }
+}
+
+impl PartialEq for Function {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+
+impl Eq for Function {}
+impl PartialOrd for Function {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Function {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        format!("{:?}", self.statement).cmp(&format!("{:?}", other.statement))
+    }
 }
 
 impl Scopes {
@@ -129,7 +182,13 @@ impl Scopes {
             .find_map(|frame| frame.functions.get(name))
         {
             Some(functoin) => Ok(functoin),
-            None => bail!("Function `{name}` not found!"),
+            None => match self.get(name) {
+                Result::Ok(Value::Function(function)) => Ok(function),
+                Result::Ok(_) => {
+                    bail!("Function `{name}` not found! Note: variable with this name exists.")
+                }
+                Err(_) => bail!("Function `{name}` not found!"),
+            },
         }
     }
 
@@ -187,7 +246,11 @@ impl Eval for Statement {
 }
 
 impl Eval for FnDecl {
-    fn eval(&self, scopes: &mut Scopes, _library: &mut Library) -> Result<Value> {
+    fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
+        let block = match self.block.eval(scopes, library)? {
+            Value::Function(function) => function,
+            _ => unreachable!(),
+        };
         match scopes
             .local
             .last_mut()
@@ -199,10 +262,7 @@ impl Eval for FnDecl {
                 bail!("Function '{}' already exists!", self.name.ident())
             }
             std::collections::hash_map::Entry::Vacant(function) => {
-                function.insert(Function {
-                    args: self.args.0.clone(),
-                    statement: self.statement.clone(),
-                });
+                function.insert(block);
             }
         }
         Ok(Value::Unit)
@@ -409,6 +469,7 @@ impl Eval for PrimaryExp {
             PrimaryExp::LString(value) => Value::String(value.inner().to_owned()),
             PrimaryExp::Array(array) => array.eval(scopes, library)?,
             PrimaryExp::Table(table) => table.eval(scopes, library)?,
+            PrimaryExp::Lambda(_, function) => function.eval(scopes, library)?,
         })
     }
 }
@@ -457,6 +518,15 @@ impl Eval for Table {
             }
         }
         Ok(Value::Table(table))
+    }
+}
+
+impl Eval for FnBlock {
+    fn eval(&self, _scopes: &mut Scopes, _library: &mut Library) -> Result<Value> {
+        Ok(Value::Function(Function {
+            args: self.args.0.clone(),
+            statement: self.statement.clone(),
+        }))
     }
 }
 
@@ -512,43 +582,52 @@ impl Eval for FunctionCall {
         if self.name.ident() == "eval" {
             match &args[..] {
                 [Value::String(code)] => {
-                    Program::parse(code).eval(scopes, library)?;
+                    Program::parse(code)?.eval(scopes, library)?;
                     Ok(Value::Unit)
                 }
                 _ => bail!(r#"Usage: eval("some_global_variable = \"Evaluated\";");"#),
+            }
+        } else if self.name.ident() == "for" {
+            match &args[..] {
+                [Value::String(string), Value::Function(body)] => {
+                    for character in string.chars() {
+                        body.eval(
+                            scopes,
+                            library,
+                            vec![Value::String(String::from(character))],
+                        )?;
+                    }
+                    Ok(Value::Unit)
+                }
+                [Value::Array(array), Value::Function(body)] => {
+                    for element in array {
+                        body.eval(scopes, library, vec![element.clone()])?;
+                    }
+                    Ok(Value::Unit)
+                }
+                [Value::Table(table), Value::Function(body)] => {
+                    for (key, value) in table {
+                        body.eval(scopes, library, vec![key.clone(), value.clone()])?;
+                    }
+                    Ok(Value::Unit)
+                }
+                [Value::Int(initial), Value::Int(limit), Value::Function(body)] => {
+                    for index in *initial..*limit {
+                        body.eval(scopes, library, vec![Value::Int(index)])?;
+                    }
+                    Ok(Value::Unit)
+                }
+                _ => bail!(concat!(
+                    r#"Usage: for([1, 2, 3], fn (number: int) {{ println(number); }})\n"#,
+                    r#"or for(0, 2, fn (index: int) {{ println(index); }})\n"#,
+                    r#"or for({ a = 1; b = 2; }, fn (key: String, value: int) {{ println(key, value); }})"#,
+                )),
             }
         } else if let Some(function) = library.functions.get_mut(self.name.ident()) {
             function(scopes, args)
         } else {
             let function = scopes.get_function(self.name.ident())?.clone();
-            ensure!(
-                args.len() == function.args.len(),
-                "Function argument count mismatch when calling function {}!",
-                self.name.ident()
-            );
-            scopes.local.push(StackFrame::default());
-            for (index, arg) in args.into_iter().enumerate() {
-                let arg_def = &function.args[index];
-                match (&arg, arg_def.arg_type.inner()) {
-                    (Value::Int(_), Type::Int) => (),
-                    (Value::Bool(_), Type::Bool) => (),
-                    (Value::String(_), Type::String) => (),
-                    (Value::Table(_), Type::Table) => (),
-                    _ => bail!(
-                        "Function argument type mismatch when calling function '{}' in argument '{}'!",
-                        self.name.ident(), arg_def.name.ident(),
-                    ),
-                }
-                scopes
-                    .local
-                    .last_mut()
-                    .context("Internal error: nowhere to create an argument variable!")?
-                    .variables
-                    .insert(arg_def.name.ident().to_owned(), arg);
-            }
-            function.statement.eval(scopes, library)?;
-            scopes.local.pop();
-            Ok(Value::Unit)
+            function.eval(scopes, library, args)
         }
     }
 }

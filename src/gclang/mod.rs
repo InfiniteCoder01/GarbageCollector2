@@ -33,6 +33,6 @@ macro_rules! ensure_type {
 pub use ensure_type;
 
 // * ----------------------------------- Programs ----------------------------------- * //
-pub fn bash() -> Program {
-    Program::parse(include_str!("programs/gcsh.gc"))
+pub fn gcsh() -> Program {
+    Program::parse(include_str!("programs/gcsh.gc")).expect("Failed to compile gcsh!")
 }
