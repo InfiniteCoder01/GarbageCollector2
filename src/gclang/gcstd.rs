@@ -55,6 +55,7 @@ impl Library<'_> {
             let files = hash_map! {
                 "gcsh.gc" => include_str!("programs/gcsh.gc"),
                 "bash.gc" => include_str!("programs/bash.gc"),
+                "demo.sh" => include_str!("programs/demo.sh"),
             };
             Ok(match &args[..] {
                 [Value::String(filename)] => Value::String(String::from(*files.get(filename.as_str()).context(format!("File '{}' not found!", filename))?)),

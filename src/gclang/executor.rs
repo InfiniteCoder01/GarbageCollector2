@@ -62,7 +62,7 @@ impl Value {
                 if !lhs.is_empty() && !rhs.is_empty() {
                     let lhs = lhs.iter().next().unwrap();
                     let rhs = rhs.iter().next().unwrap();
-                    lhs.0.matches(rhs.0) && lhs.1.matches(rhs.1)
+                    lhs.0.matches(rhs.0) // && lhs.1.matches(rhs.1) // Make it a little fuzzier
                 } else {
                     true
                 }

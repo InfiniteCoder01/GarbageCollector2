@@ -7,10 +7,13 @@ global filesystem = table {
         "fish" = builtin_file("bash.gc");
         "zsh" = builtin_file("bash.gc");
         "sh" = builtin_file("bash.gc");
+        "demo.sh" = builtin_file("demo.sh");
     };
 };
 
+// ---------------------------------------- API ------------------------------------------ //
 fn get_root_path(relative_path: String) {
+    // TODO: ./../
     if relative_path[0] == "." {
         relative_path[0] = gcsh_working_directory;
     } else if relative_path[0] == "~" {
@@ -20,72 +23,96 @@ fn get_root_path(relative_path: String) {
 }
 
 fn read_file(path: String) {
-    if path[0] == "." {
-        path[0] = gcsh_working_directory;
-    } else if path[0] == "~" {
-        path[0] = gcsh_home_directory;
-    }
-    let path = filesystem;
+    path = get_root_path(path);
+    path[0] = "";
+
+    let root = filesystem;
+    let filename = "";
+    for(path, fn (char: String) {
+        if char == "/" {
+            root = root[filename];
+            filename = "";
+        } else {
+            filename = filename + char;
+        }
+    });
+    return root[filename];
 }
 
-global gcsh_state = "Run";
+// ------------------------------------ Interpreter -------------------------------------- //
 global gcsh_command = "";
+global gcsh_executable = "";
 global gcsh_home_directory = "/home";
 global gcsh_working_directory = gcsh_home_directory;
 
-fn execute() {
-    let args = [];
-
-    {
-        let token = "";
-        for(gcsh_command, fn (char: String) {
-            // TODO: String literals
-            if char == " " {
+fn gcsh_execute() {
+    if len(gcsh_command) > 0 {
+        if gcsh_command[0] != "#" {
+            {
+                args = [];
+                let token = "";
+                for(gcsh_command, fn (char: String) {
+                    // TODO: String literals
+                    if char == " " {
+                        args = args + [token];
+                        token = "";
+                    } else {
+                        token = token + char;
+                    }
+                });
                 args = args + [token];
-                token = "";
-            } else {
-                token = token + char;
             }
-        });
-        args = args + [token];
-    }
 
-    gcsh_state = "Run";
-    let bin = filesystem["bin"];
-    if contains(bin, args[0]) {
-        eval(bin[args[0]]);
-    } else {
-        println("Command '" + args[0] + "' not found!");
+            gcsh_executable = "";
+            if args[0] != "" {
+                let bin = filesystem["bin"];
+                if contains(bin, args[0]) {
+                    eval(bin[args[0]]);
+                } else {
+                    println("Command '" + args[0] + "' not found!");
+                }
+            }
+        }
     }
 }
 
+// --------------------------------------- Shell ----------------------------------------- //
 if len(args) > 1 {
     args = remove(args, 0);
-    let home = filesystem["home"];
-    gcsh_command = args[0];
-    execute();
-}
-
-let input = input();
-if gcsh_state == "Run" {
-    print("/home\n> ");
-    gcsh_state = "Prompt";
+    let script = read_file(args[0]);
     gcsh_command = "";
-} else if gcsh_state == "Prompt" {
-    if len(input) > 0 {
-        if contains(input, "\x08") {
-            if len(gcsh_command) > 0 {
-                screen_buffer = pop(screen_buffer);
-                gcsh_command = pop(gcsh_command);
-            }
-        } else if contains(input, "\n") {
-            println();
-            println(get_root_path("~/Test"));
-            // execute();
+    for(script, fn (char: String) {
+        if char == "\n" {
+            gcsh_execute();
+            gcsh_command = "";
         } else {
-            gcsh_command = gcsh_command + input;
-            print(input);
+            gcsh_command = gcsh_command + char;
         }
+    });
+    gcsh_execute();
+} else {
+    if gcsh_executable == "" {
+        print("/home\n> ");
+        gcsh_executable = "/bin/gcsh";
+        gcsh_command = "";
+    } else if gcsh_executable == "/bin/gcsh" {
+        let input = input();
+        if len(input) > 0 {
+            if contains(input, "\x08") {
+                if len(gcsh_command) > 0 {
+                    screen_buffer = pop(screen_buffer);
+                    gcsh_command = pop(gcsh_command);
+                }
+            } else if contains(input, "\n") {
+                println();
+                gcsh_execute();
+            } else {
+                gcsh_command = gcsh_command + input;
+                print(input);
+            }
+        }
+    } else {
+        eval(read_file(gcsh_executable));
     }
 }
 
