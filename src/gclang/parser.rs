@@ -13,7 +13,7 @@ use std::{fmt, str::FromStr};
 enum TokenKind {
     #[skip(r"\s+|//.+\n")]
     _Skip,
-    #[regex(r"global|let|fn|if|else|return")]
+    #[regex(r"global|let|fn|if|else|return|table")]
     Keyword(Keyword),
     #[regex(r"int|bool|String|Table")]
     Type(Type),
@@ -39,6 +39,7 @@ enum Keyword {
     If,
     Else,
     Return,
+    Table,
 }
 
 impl FromStr for Keyword {
@@ -52,6 +53,7 @@ impl FromStr for Keyword {
             "if" => Ok(Self::If),
             "else" => Ok(Self::Else),
             "return" => Ok(Self::Return),
+            "table" => Ok(Self::Table),
             _ => Err(()),
         }
     }
@@ -66,6 +68,7 @@ impl fmt::Display for Keyword {
             Self::If => write!(f, "if"),
             Self::Else => write!(f, "else"),
             Self::Return => write!(f, "return"),
+            Self::Table => write!(f, "table"),
         }
     }
 }
@@ -197,6 +200,7 @@ token_ast! {
     [if] => { kind: TokenKind::Keyword(Keyword::If) },
     [else] => { kind: TokenKind::Keyword(Keyword::Else) },
     [return] => { kind: TokenKind::Keyword(Keyword::Return) },
+    [table] => { kind: TokenKind::Keyword(Keyword::Table) },
     [type] => { kind: TokenKind::Type(_), prompt: "type" },
     [lint] => { kind: TokenKind::Int(_), prompt: "integer literal" },
     [lstring] => { kind: TokenKind::String(_), prompt: "string literal" },
@@ -450,7 +454,7 @@ pub(super) enum PrimaryExpression {
     LInt(Token![lint]),
     LString(Token![lstring]),
     Array(Array),
-    Table(Token![:], Table),
+    Table(Token![table], Table),
     Lambda(Token![fn], FnBlock),
 }
 

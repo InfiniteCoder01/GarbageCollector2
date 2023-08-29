@@ -1,7 +1,7 @@
 global args = [];
-global filesystem = :{
-    "home" = :{};
-    "bin" = :{
+global filesystem = table {
+    "home" = table  {};
+    "bin" = table  {
         "gcsh" = builtin_file("gcsh.gc");
         "bash" = builtin_file("bash.gc");
         "fish" = builtin_file("bash.gc");
@@ -19,15 +19,14 @@ fn get_root_path(relative_path: String) {
     return relative_path;
 }
 
-// let file = "";
-// fn read_file(path: String) {
-//     if path[0] == "." {
-//         path[0] = gcsh_working_directory;
-//     } else if path[0] == "~" {
-//         path[0] = gcsh_home_directory;
-//     }
-//     let path = filesystem;
-// }
+fn read_file(path: String) {
+    if path[0] == "." {
+        path[0] = gcsh_working_directory;
+    } else if path[0] == "~" {
+        path[0] = gcsh_home_directory;
+    }
+    let path = filesystem;
+}
 
 global gcsh_state = "Run";
 global gcsh_command = "";
