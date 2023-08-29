@@ -1,3 +1,4 @@
+global args = [];
 global filesystem = {
     "home" = {};
     "bin" = {
@@ -11,6 +12,40 @@ global filesystem = {
 
 global gcsh_state = "Run";
 global gcsh_command = "";
+global gcsh_working_directory = "/home";
+
+fn execute() {
+    let args = [];
+
+    {
+        let token = "";
+        for(gcsh_command, fn (char: String) {
+            // TODO: String literals
+            if char == " " {
+                args = args + [token];
+                token = "";
+            } else {
+                token = token + char;
+            }
+        });
+        args = args + [token];
+    }
+
+    gcsh_state = "Run";
+    let bin = filesystem["bin"];
+    if contains(bin, args[0]) {
+        eval(bin[args[0]]);
+    } else {
+        println("Command '" + args[0] + "' not found!");
+    }
+}
+
+if len(args) > 1 {
+    args = remove(args, 0);
+    let home = filesystem["home"];
+    gcsh_command = args[0];
+    execute();
+}
 
 let input = input();
 if gcsh_state == "Run" {
@@ -26,28 +61,7 @@ if gcsh_state == "Run" {
             }
         } else if contains(input, "\n") {
             println();
-            let bin = filesystem["bin"];
-            let args = [];
-
-            {
-                let token = "";
-                for(gcsh_command, fn (char: String) {
-                    if char == " " {
-                        args = args + [token];
-                        token = "";
-                    } else {
-                        token = token + char;
-                    }
-                });
-                args = args + [token];
-            }
-
-            gcsh_state = "Run";
-            if contains(bin, args[0]) {
-                eval(bin[args[0]]);
-            } else {
-                println("Command '" + args[0] + "' not found!");
-            }
+            execute();
         } else {
             gcsh_command = gcsh_command + input;
             print(input);

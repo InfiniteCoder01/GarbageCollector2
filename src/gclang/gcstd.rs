@@ -8,6 +8,7 @@ impl Library<'_> {
         library_function!(library += len(_scopes, args) {
             Ok(match &args[..] {
                 [Value::String(value)] => Value::Int(value.len() as _),
+                [Value::Array(value)] => Value::Int(value.len() as _),
                 [Value::Table(value)] => Value::Int(value.len() as _),
                 _ => bail!(r#"Usage: len("Some text") or len({{0 = "Some table";}})"#)
             })
