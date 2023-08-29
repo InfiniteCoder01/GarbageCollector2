@@ -176,6 +176,7 @@ impl speedy2d::window::WindowHandler for Game {
                 index as usize % self.input.palette.len()
             };
         }
+        // TODO: Scroll terminal content
     }
 
     fn on_draw(&mut self, helper: &mut WindowHelper, graphics: &mut speedy2d::Graphics2D) {
@@ -261,6 +262,7 @@ impl speedy2d::window::WindowHandler for Game {
             let mut line_width = 0;
             let mut new_screen = String::new();
             for ch in screen.chars() {
+                // TODO: Better word wrap
                 if line_width >= screen_width {
                     line_width = 0;
                     if ch != '\n' {
@@ -274,20 +276,25 @@ impl speedy2d::window::WindowHandler for Game {
                 }
                 new_screen.push(ch);
             }
-            *screen = String::new();
-            for (index, line) in new_screen.split_inclusive('\n').rev().enumerate() {
-                if index >= screen_height {
-                    break;
-                }
-                screen.insert_str(0, line)
-            }
+            *screen = new_screen;
 
             graphics.draw_text(
                 tl + size / Vec2::new(17.0, 14.0),
-                Color::GREEN,
-                &assets
-                    .font
-                    .layout_text(screen, (size.y - 26.0) / 30.0, Default::default()),
+                Color::GREEN, // TODO: Colored text
+                &assets.font.layout_text(
+                    &screen
+                        .split_inclusive('\n')
+                        .rev()
+                        .take(screen_height)
+                        .collect::<Vec<_>>()
+                        .iter()
+                        .rev()
+                        .copied()
+                        .collect::<Vec<_>>()
+                        .join(""),
+                    (size.y - 26.0) / 30.0,
+                    Default::default(),
+                ),
             )
         }
 

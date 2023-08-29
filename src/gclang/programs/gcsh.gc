@@ -8,6 +8,7 @@ global filesystem = table {
         "zsh" = builtin_file("bash.gc");
         "sh" = builtin_file("bash.gc");
         "ls" = builtin_file("ls.gc");
+        // TODO: neofetch, sl
     };
 };
 
@@ -46,6 +47,8 @@ fn read_file(path: String) {
     }
     return file;
 }
+
+// TODO: parse args like -l -la --list and stuff
 
 // ------------------------------------ Interpreter -------------------------------------- //
 global gcsh_command = "";
