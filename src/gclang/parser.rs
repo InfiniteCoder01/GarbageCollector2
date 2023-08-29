@@ -13,7 +13,7 @@ use std::{fmt, str::FromStr};
 enum TokenKind {
     #[skip(r"\s+|//.+\n")]
     _Skip,
-    #[regex(r"global|let|fn|if|else")]
+    #[regex(r"global|let|fn|if|else|return")]
     Keyword(Keyword),
     #[regex(r"int|bool|String|Table")]
     Type(Type),
@@ -38,6 +38,7 @@ enum Keyword {
     Fn,
     If,
     Else,
+    Return,
 }
 
 impl FromStr for Keyword {
@@ -50,6 +51,7 @@ impl FromStr for Keyword {
             "fn" => Ok(Self::Fn),
             "if" => Ok(Self::If),
             "else" => Ok(Self::Else),
+            "return" => Ok(Self::Return),
             _ => Err(()),
         }
     }
@@ -63,6 +65,7 @@ impl fmt::Display for Keyword {
             Self::Fn => write!(f, "fn"),
             Self::If => write!(f, "if"),
             Self::Else => write!(f, "else"),
+            Self::Return => write!(f, "return"),
         }
     }
 }
@@ -193,6 +196,7 @@ token_ast! {
     [fn] => { kind: TokenKind::Keyword(Keyword::Fn) },
     [if] => { kind: TokenKind::Keyword(Keyword::If) },
     [else] => { kind: TokenKind::Keyword(Keyword::Else) },
+    [return] => { kind: TokenKind::Keyword(Keyword::Return) },
     [type] => { kind: TokenKind::Type(_), prompt: "type" },
     [lint] => { kind: TokenKind::Int(_), prompt: "integer literal" },
     [lstring] => { kind: TokenKind::String(_), prompt: "string literal" },
@@ -274,7 +278,6 @@ pub(super) enum Statement {
     LocalDecl(Token![let], Token![ident], Token![=], Expression, Token![;]),
     FnDecl(Box<FnDecl>),
     If(Box<IfStatement>),
-    Block(BlockStatement),
     Expression(ExpressionStatement),
     End(Token![eof]),
 }
@@ -293,7 +296,7 @@ pub(super) struct FnBlock {
     lpr: Token![lpr],
     pub(super) args: SepSeq<ArgDef, Token![,]>,
     rpr: Token![rpr],
-    pub(super) statement: Statement,
+    pub(super) expression: Expression,
 }
 
 impl Spanned for FnBlock {
@@ -326,17 +329,9 @@ pub(super) struct ElseStatement {
     pub(super) statement: Statement,
 }
 
-#[derive(Parse, Clone, Debug)]
-#[token(Token)]
-pub(super) struct BlockStatement {
-    _lbk: Token![lbk],
-    pub(super) statements: Option<NonEmptySeq<Statement>>,
-    _rbk: Token![rbk],
-}
-
 #[derive(Clone, Debug)]
 pub(super) enum ExpressionStatement {
-    Expression(Box<Expression>, Token![;]),
+    Expression(Box<Expression>, Option<Token![;]>),
     Assign(Box<Assign>),
 }
 
@@ -345,16 +340,33 @@ where
     TS: TokenStream<Token = Token>,
 {
     fn parse(tokens: &mut TS) -> Result<Self> {
-        let exp = tokens.parse()?;
+        let expression = tokens.parse()?;
         Ok(if <Token![=]>::maybe(tokens)? {
             Self::Assign(Box::new(Assign {
-                lval: exp,
+                lval: expression,
                 _assign: tokens.parse()?,
                 rval: tokens.parse()?,
                 _semi: tokens.parse()?,
             }))
         } else {
-            Self::Expression(Box::new(exp), tokens.parse()?)
+            let is_block = if let NonEmptySepList::One(NonEmptySepList::One(
+                NonEmptySepList::One(NonEmptySepList::One(NonEmptySepList::One(
+                    NonEmptySepList::One(UnaryExpression::Primary(expression)),
+                ))),
+            )) = &expression
+            {
+                matches!(expression.as_ref(), PrimaryExpression::Block(_))
+            } else {
+                false
+            };
+            Self::Expression(
+                Box::new(expression),
+                if is_block {
+                    None
+                } else {
+                    Some(tokens.parse()?)
+                },
+            )
         })
     }
 
@@ -372,9 +384,9 @@ pub(super) struct Assign {
 }
 
 // * ------------------------------------------------------------------------------- Expressions ------------------------------------------------------------------------------ * //
-pub(super) type Expression = NonEmptySepList<AndExp, Token![||]>;
-pub(super) type AndExp = NonEmptySepList<EqExp, Token![&&]>;
-pub(super) type EqExp = NonEmptySepList<RelExp, EqOps>;
+pub(super) type Expression = NonEmptySepList<AndExpression, Token![||]>;
+pub(super) type AndExpression = NonEmptySepList<EqExpression, Token![&&]>;
+pub(super) type EqExpression = NonEmptySepList<RelExpression, EqOps>;
 
 #[derive(Parse, Clone, Debug)]
 #[token(Token)]
@@ -383,7 +395,7 @@ pub(super) enum EqOps {
     Ne(Token![!=]),
 }
 
-pub(super) type RelExp = NonEmptySepList<AddExp, RelOps>;
+pub(super) type RelExpression = NonEmptySepList<AddExpression, RelOps>;
 
 #[derive(Parse, Clone, Debug)]
 #[token(Token)]
@@ -394,7 +406,7 @@ pub(super) enum RelOps {
     Ge(Token![>=]),
 }
 
-pub(super) type AddExp = NonEmptySepList<MulExp, AddOps>;
+pub(super) type AddExpression = NonEmptySepList<MulExpression, AddOps>;
 
 #[derive(Parse, Clone, Debug)]
 #[token(Token)]
@@ -403,7 +415,7 @@ pub(super) enum AddOps {
     Sub(Token![-]),
 }
 
-pub(super) type MulExp = NonEmptySepList<UnaryExp, MulOps>;
+pub(super) type MulExpression = NonEmptySepList<UnaryExpression, MulOps>;
 
 #[derive(Parse, Clone, Debug)]
 #[token(Token)]
@@ -415,9 +427,9 @@ pub(super) enum MulOps {
 
 #[derive(Parse, Clone, Spanned, Debug)]
 #[token(Token)]
-pub(super) enum UnaryExp {
+pub(super) enum UnaryExpression {
     Unary(UnaryOps, Box<Self>),
-    Primary(Box<PrimaryExp>),
+    Primary(Box<PrimaryExpression>),
 }
 
 #[derive(Parse, Clone, Spanned, Debug)]
@@ -430,23 +442,47 @@ pub(super) enum UnaryOps {
 
 #[derive(Parse, Clone, Spanned, Debug)]
 #[token(Token)]
-pub(super) enum PrimaryExp {
-    ParenExp(ParenExp),
+pub(super) enum PrimaryExpression {
+    Parens(ParenExpression),
+    Block(BlockExpression),
     FuncCall(FunctionCall),
     Access(Access),
     LInt(Token![lint]),
     LString(Token![lstring]),
     Array(Array),
-    Table(Table),
+    Table(Token![:], Table),
     Lambda(Token![fn], FnBlock),
 }
 
 #[derive(Parse, Clone, Spanned, Debug)]
 #[token(Token)]
-pub(super) struct ParenExp {
+pub(super) struct ParenExpression {
     _lpr: Token![lpr],
     pub(super) exp: Expression,
     _rpr: Token![rpr],
+}
+
+#[derive(Parse, Clone, Debug)]
+#[token(Token)]
+pub(super) struct BlockExpression {
+    lbk: Token![lbk],
+    pub(super) statements: Option<NonEmptySeq<Statement>>,
+    pub(super) trailing_return: Option<TrailingReturn>,
+    rbk: Token![rbk],
+}
+
+#[derive(Parse, Clone, Debug)]
+#[token(Token)]
+pub(super) struct TrailingReturn {
+    _ret: Token![return],
+    pub(super) expression: Expression,
+    _semi: Token![;],
+}
+
+impl Spanned for BlockExpression {
+    fn span(&self) -> laps::span::Span {
+        self.lbk.span().into_end_updated(self.rbk.span())
+    }
 }
 
 #[derive(Parse, Clone, Spanned, Debug)]

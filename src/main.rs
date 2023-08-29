@@ -67,10 +67,14 @@ impl Game {
     fn on_key(&mut self, key: VirtualKeyCode, state: bool) {
         #[allow(clippy::neg_multiply, clippy::identity_op)]
         match key {
-            VirtualKeyCode::A => self.input.wasd.x = -1 * state as i32,
-            VirtualKeyCode::D => self.input.wasd.x = 1 * state as i32,
-            VirtualKeyCode::Space | VirtualKeyCode::W => self.input.wasd.y = -1 * state as i32,
-            VirtualKeyCode::LShift | VirtualKeyCode::S => self.input.wasd.y = 1 * state as i32,
+            VirtualKeyCode::A | VirtualKeyCode::Left => self.input.wasd.x = -1 * state as i32,
+            VirtualKeyCode::D | VirtualKeyCode::Right => self.input.wasd.x = 1 * state as i32,
+            VirtualKeyCode::Space | VirtualKeyCode::W | VirtualKeyCode::Up => {
+                self.input.wasd.y = -1 * state as i32
+            }
+            VirtualKeyCode::LShift | VirtualKeyCode::S | VirtualKeyCode::Down => {
+                self.input.wasd.y = 1 * state as i32
+            }
             _ => (),
         };
     }
@@ -105,7 +109,8 @@ impl speedy2d::window::WindowHandler for Game {
     ) {
         if let Some(key) = virtual_key_code {
             self.on_key(key, true);
-            if key == VirtualKeyCode::Space || key == VirtualKeyCode::W {
+            if key == VirtualKeyCode::Space || key == VirtualKeyCode::W || key == VirtualKeyCode::Up
+            {
                 self.input.jump = true;
             } else if key == VirtualKeyCode::E {
                 self.input.interact = true;

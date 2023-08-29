@@ -1,7 +1,7 @@
 global args = [];
-global filesystem = {
-    "home" = {};
-    "bin" = {
+global filesystem = :{
+    "home" = :{};
+    "bin" = :{
         "gcsh" = builtin_file("gcsh.gc");
         "bash" = builtin_file("bash.gc");
         "fish" = builtin_file("bash.gc");
@@ -10,9 +10,29 @@ global filesystem = {
     };
 };
 
+fn get_root_path(relative_path: String) {
+    if relative_path[0] == "." {
+        relative_path[0] = gcsh_working_directory;
+    } else if relative_path[0] == "~" {
+        relative_path[0] = gcsh_home_directory;
+    }
+    return relative_path;
+}
+
+// let file = "";
+// fn read_file(path: String) {
+//     if path[0] == "." {
+//         path[0] = gcsh_working_directory;
+//     } else if path[0] == "~" {
+//         path[0] = gcsh_home_directory;
+//     }
+//     let path = filesystem;
+// }
+
 global gcsh_state = "Run";
 global gcsh_command = "";
-global gcsh_working_directory = "/home";
+global gcsh_home_directory = "/home";
+global gcsh_working_directory = gcsh_home_directory;
 
 fn execute() {
     let args = [];
@@ -61,7 +81,8 @@ if gcsh_state == "Run" {
             }
         } else if contains(input, "\n") {
             println();
-            execute();
+            println(get_root_path("~/Test"));
+            // execute();
         } else {
             gcsh_command = gcsh_command + input;
             print(input);

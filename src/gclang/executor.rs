@@ -90,8 +90,9 @@ struct StackFrame {
 #[derive(Clone, Debug)]
 pub struct Function {
     args: Vec<ArgDef>,
-    statement: Statement,
+    expression: Expression,
 }
+
 impl Function {
     fn eval(&self, scopes: &mut Scopes, library: &mut Library, args: Vec<Value>) -> Result<Value> {
         ensure!(
@@ -118,9 +119,9 @@ impl Function {
                 .variables
                 .insert(arg_def.name.ident().to_owned(), arg);
         }
-        self.statement.eval(scopes, library)?;
+        let result = self.expression.eval(scopes, library)?;
         scopes.local.pop();
-        Ok(Value::Unit)
+        Ok(result)
     }
 }
 
@@ -139,7 +140,7 @@ impl PartialOrd for Function {
 
 impl Ord for Function {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        format!("{:?}", self.statement).cmp(&format!("{:?}", other.statement))
+        format!("{:?}", self.expression).cmp(&format!("{:?}", other.expression))
     }
 }
 
@@ -238,7 +239,6 @@ impl Eval for Statement {
             }
             Statement::FnDecl(decl) => decl.eval(scopes, library),
             Statement::If(statement) => statement.eval(scopes, library),
-            Statement::Block(statement) => statement.eval(scopes, library),
             Statement::Expression(expr) => expr.eval(scopes, library),
             Statement::End(_) => Ok(Value::Never),
         }
@@ -282,19 +282,6 @@ impl Eval for IfStatement {
         } else if let Some(else_statement) = &self.else_statement {
             else_statement.statement.eval(scopes, library)?;
         }
-        Ok(Value::Unit)
-    }
-}
-
-impl Eval for BlockStatement {
-    fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
-        scopes.local.push(StackFrame::default());
-        if let Some(statements) = &self.statements {
-            for statement in &statements.0 {
-                statement.eval(scopes, library)?;
-            }
-        }
-        scopes.local.pop();
         Ok(Value::Unit)
     }
 }
@@ -347,12 +334,12 @@ eval_expression! {
 }
 
 eval_expression! {
-    AndExp
+    AndExpression
     Bool(lhs) Bool(rhs) => Value::Bool(lhs && rhs);
 }
 
 eval_expression! {
-    EqExp lhs rhs
+    EqExpression lhs rhs
     EqOps::Eq => {
         if !lhs.matches(&rhs) {
             bail!("Type mismatch in equality!");
@@ -368,7 +355,7 @@ eval_expression! {
 }
 
 eval_expression! {
-    RelExp lhs rhs
+    RelExpression lhs rhs
     RelOps::Lt => match (lhs, rhs) {
         (Value::Int(lhs), Value::Int(rhs)) => Value::Bool(lhs < rhs),
         _ => bail!("Type mismatch in operator '<'!"),
@@ -388,7 +375,7 @@ eval_expression! {
 }
 
 eval_expression! {
-    AddExp lhs rhs
+    AddExpression lhs rhs
     AddOps::Add =>{
         let matches = lhs.matches(&rhs);
         match (lhs, rhs) {
@@ -419,7 +406,7 @@ eval_expression! {
 }
 
 eval_expression! {
-    MulExp lhs rhs
+    MulExpression lhs rhs
     MulOps::Mul => match (lhs, rhs) {
         (Value::Int(lhs), Value::Int(rhs)) => Value::Int(lhs * rhs),
         (Value::String(lhs), Value::Int(rhs)) => Value::String(lhs.repeat(rhs as _)),
@@ -439,10 +426,10 @@ eval_expression! {
     };
 }
 
-impl Eval for UnaryExp {
+impl Eval for UnaryExpression {
     fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
         match self {
-            UnaryExp::Unary(op, expr) => {
+            UnaryExpression::Unary(op, expr) => {
                 let value = expr.eval(scopes, library)?;
                 Ok(match op {
                     UnaryOps::Pos(_) => value,
@@ -456,29 +443,48 @@ impl Eval for UnaryExp {
                     },
                 })
             }
-            UnaryExp::Primary(expr) => expr.eval(scopes, library),
+            UnaryExpression::Primary(expr) => expr.eval(scopes, library),
         }
     }
 }
 
-impl Eval for PrimaryExp {
+impl Eval for PrimaryExpression {
     fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
         Ok(match self {
-            PrimaryExp::ParenExp(expr) => expr.eval(scopes, library)?,
-            PrimaryExp::FuncCall(expr) => expr.eval(scopes, library)?,
-            PrimaryExp::Access(access) => access.eval(scopes, library)?,
-            PrimaryExp::LInt(value) => Value::Int(value.inner() as i32),
-            PrimaryExp::LString(value) => Value::String(value.inner().to_owned()),
-            PrimaryExp::Array(array) => array.eval(scopes, library)?,
-            PrimaryExp::Table(table) => table.eval(scopes, library)?,
-            PrimaryExp::Lambda(_, function) => function.eval(scopes, library)?,
+            PrimaryExpression::Parens(expr) => expr.eval(scopes, library)?,
+            PrimaryExpression::Block(expr) => expr.eval(scopes, library)?,
+            PrimaryExpression::FuncCall(expr) => expr.eval(scopes, library)?,
+            PrimaryExpression::Access(access) => access.eval(scopes, library)?,
+            PrimaryExpression::LInt(value) => Value::Int(value.inner() as i32),
+            PrimaryExpression::LString(value) => Value::String(value.inner().to_owned()),
+            PrimaryExpression::Array(array) => array.eval(scopes, library)?,
+            PrimaryExpression::Table(_, table) => table.eval(scopes, library)?,
+            PrimaryExpression::Lambda(_, function) => function.eval(scopes, library)?,
         })
     }
 }
 
-impl Eval for ParenExp {
+impl Eval for ParenExpression {
     fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
         self.exp.eval(scopes, library)
+    }
+}
+
+impl Eval for BlockExpression {
+    fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
+        scopes.local.push(StackFrame::default());
+        if let Some(statements) = &self.statements {
+            for statement in &statements.0 {
+                statement.eval(scopes, library)?;
+            }
+        }
+        let result = if let Some(trailing_return) = &self.trailing_return {
+            trailing_return.expression.eval(scopes, library)?
+        } else {
+            Value::Unit
+        };
+        scopes.local.pop();
+        Ok(result)
     }
 }
 
@@ -527,7 +533,7 @@ impl Eval for FnBlock {
     fn eval(&self, _scopes: &mut Scopes, _library: &mut Library) -> Result<Value> {
         Ok(Value::Function(Function {
             args: self.args.0.clone(),
-            statement: self.statement.clone(),
+            expression: self.expression.clone(),
         }))
     }
 }
@@ -653,26 +659,26 @@ macro_rules! impl_assign {
 
 impl_assign! {
     Expression "Can't assign to '||'!";
-    AndExp "Can't assign to '&&'!";
-    EqExp "Can't assign to comparisons!";
-    RelExp "Can't assign to comparisons!";
-    AddExp "Can't assign to arithmetics!";
-    MulExp "Can't assign to arithmetics!";
+    AndExpression "Can't assign to '&&'!";
+    EqExpression "Can't assign to comparisons!";
+    RelExpression "Can't assign to comparisons!";
+    AddExpression "Can't assign to arithmetics!";
+    MulExpression "Can't assign to arithmetics!";
 }
 
-impl AssignTo for UnaryExp {
+impl AssignTo for UnaryExpression {
     fn assign(&self, scopes: &mut Scopes, library: &mut Library, value: Value) -> Result<()> {
         match self {
-            UnaryExp::Primary(expr) => expr.assign(scopes, library, value),
+            UnaryExpression::Primary(expr) => expr.assign(scopes, library, value),
             _ => bail!("Can't assign to unary operations"),
         }
     }
 }
 
-impl AssignTo for PrimaryExp {
+impl AssignTo for PrimaryExpression {
     fn assign(&self, scopes: &mut Scopes, library: &mut Library, value: Value) -> Result<()> {
         match self {
-            PrimaryExp::Access(expr) => expr.assign(scopes, library, value),
+            PrimaryExpression::Access(expr) => expr.assign(scopes, library, value),
             _ => bail!("Can't assign to this primary!"),
         }
     }
