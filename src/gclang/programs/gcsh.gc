@@ -7,7 +7,7 @@ global filesystem = table {
         "fish" = builtin_file("bash.gc");
         "zsh" = builtin_file("bash.gc");
         "sh" = builtin_file("bash.gc");
-        "demo.sh" = builtin_file("demo.sh");
+        "ls" = builtin_file("ls.gc");
     };
 };
 
@@ -26,17 +26,25 @@ fn read_file(path: String) {
     path = get_root_path(path);
     path[0] = "";
 
-    let root = filesystem;
-    let filename = "";
-    for(path, fn (char: String) {
-        if char == "/" {
-            root = root[filename];
-            filename = "";
-        } else {
-            filename = filename + char;
+    let file = any;
+    file = filesystem;
+    if len(path) > 0  {
+        if path[len(path) - 1] == "/" {
+            path[len(path) - 1] = "";
         }
-    });
-    return root[filename];
+
+        let filename = "";
+        for(path, fn (char: String) {
+            if char == "/" {
+                file = file[filename];
+                filename = "";
+            } else {
+                filename = filename + char;
+            }
+        });
+        file = file[filename];
+    }
+    return file;
 }
 
 // ------------------------------------ Interpreter -------------------------------------- //
@@ -46,10 +54,11 @@ global gcsh_home_directory = "/home";
 global gcsh_working_directory = gcsh_home_directory;
 
 fn gcsh_execute() {
+    gcsh_command = trim(gcsh_command);
     if len(gcsh_command) > 0 {
         if gcsh_command[0] != "#" {
+            let args = [];
             {
-                args = [];
                 let token = "";
                 for(gcsh_command, fn (char: String) {
                     // TODO: String literals
@@ -64,13 +73,11 @@ fn gcsh_execute() {
             }
 
             gcsh_executable = "";
-            if args[0] != "" {
-                let bin = filesystem["bin"];
-                if contains(bin, args[0]) {
-                    eval(bin[args[0]]);
-                } else {
-                    println("Command '" + args[0] + "' not found!");
-                }
+            let bin = filesystem["bin"];
+            if contains(bin, args[0]) {
+                eval(bin[args[0]]);
+            } else {
+                println("Command '" + args[0] + "' not found!");
             }
         }
     }

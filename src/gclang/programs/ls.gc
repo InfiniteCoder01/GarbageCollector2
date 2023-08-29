@@ -1,0 +1,20 @@
+fn list_files(path: String) {
+    for(read_file(path), fn (filename: String, _: Any) {
+        println(filename);
+    });
+}
+
+args = remove(args, 0);
+if len(args) == 0 {
+    list_files(".");
+} else {
+    for(args, fn (path: String) {
+        if len(args) > 1 {
+            println(path + ":");
+        }
+        list_files(path);
+        if len(args) > 1 {
+            println();
+        }
+    });
+}

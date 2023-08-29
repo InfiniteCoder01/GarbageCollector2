@@ -51,11 +51,17 @@ impl Library<'_> {
                 _ => bail!(r#"Usage: contains("Some text", "te")"#)
             })
         });
+        library_function!(library += trim(_scopes, args) {
+            Ok(match &args[..] {
+                [Value::String(value)] => Value::String(value.trim().to_owned()),
+                _ => bail!(r#"Usage: trim("   Some text   ")"#)
+            })
+        });
         library_function!(library += builtin_file(_scopes, args) {
             let files = hash_map! {
                 "gcsh.gc" => include_str!("programs/gcsh.gc"),
                 "bash.gc" => include_str!("programs/bash.gc"),
-                "demo.sh" => include_str!("programs/demo.sh"),
+                "ls.gc" => include_str!("programs/ls.gc"),
             };
             Ok(match &args[..] {
                 [Value::String(filename)] => Value::String(String::from(*files.get(filename.as_str()).context(format!("File '{}' not found!", filename))?)),

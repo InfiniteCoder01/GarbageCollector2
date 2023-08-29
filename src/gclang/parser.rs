@@ -13,9 +13,9 @@ use std::{fmt, str::FromStr};
 enum TokenKind {
     #[skip(r"\s+|//.+\n")]
     _Skip,
-    #[regex(r"global|let|fn|if|else|return|table")]
+    #[regex(r"global|let|fn|if|else|return|table|any")]
     Keyword(Keyword),
-    #[regex(r"int|bool|String|Table")]
+    #[regex(r"int|bool|String|Table|Any")]
     Type(Type),
     #[regex(r"[_a-zA-Z][_a-zA-Z0-9]*")]
     Ident(String),
@@ -40,6 +40,7 @@ enum Keyword {
     Else,
     Return,
     Table,
+    Any,
 }
 
 impl FromStr for Keyword {
@@ -54,6 +55,7 @@ impl FromStr for Keyword {
             "else" => Ok(Self::Else),
             "return" => Ok(Self::Return),
             "table" => Ok(Self::Table),
+            "any" => Ok(Self::Any),
             _ => Err(()),
         }
     }
@@ -69,6 +71,7 @@ impl fmt::Display for Keyword {
             Self::Else => write!(f, "else"),
             Self::Return => write!(f, "return"),
             Self::Table => write!(f, "table"),
+            Self::Any => write!(f, "any"),
         }
     }
 }
@@ -79,6 +82,7 @@ pub(super) enum Type {
     Bool,
     String,
     Table,
+    Any,
 }
 
 impl FromStr for Type {
@@ -90,6 +94,7 @@ impl FromStr for Type {
             "bool" => Ok(Self::Bool),
             "String" => Ok(Self::String),
             "Table" => Ok(Self::Table),
+            "Any" => Ok(Self::Any),
             _ => Err(()),
         }
     }
@@ -102,6 +107,7 @@ impl fmt::Display for Type {
             Self::Bool => write!(f, "bool"),
             Self::String => write!(f, "String"),
             Self::Table => write!(f, "Table"),
+            Self::Any => write!(f, "Any"),
         }
     }
 }
@@ -201,6 +207,7 @@ token_ast! {
     [else] => { kind: TokenKind::Keyword(Keyword::Else) },
     [return] => { kind: TokenKind::Keyword(Keyword::Return) },
     [table] => { kind: TokenKind::Keyword(Keyword::Table) },
+    [any] => { kind: TokenKind::Keyword(Keyword::Any) },
     [type] => { kind: TokenKind::Type(_), prompt: "type" },
     [lint] => { kind: TokenKind::Int(_), prompt: "integer literal" },
     [lstring] => { kind: TokenKind::String(_), prompt: "string literal" },
@@ -456,6 +463,7 @@ pub(super) enum PrimaryExpression {
     Array(Array),
     Table(Token![table], Table),
     Lambda(Token![fn], FnBlock),
+    Any(Token![any]),
 }
 
 #[derive(Parse, Clone, Spanned, Debug)]

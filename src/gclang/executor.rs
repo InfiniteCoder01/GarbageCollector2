@@ -14,6 +14,7 @@ pub enum Value {
     Function(Function),
     Unit,
     Never,
+    Any(Box<Value>),
 }
 
 impl ToString for Value {
@@ -41,6 +42,7 @@ impl ToString for Value {
             Value::Function(function) => format!("{:#?}", function),
             Value::Unit => "Unit".to_owned(),
             Value::Never => "Never".to_owned(),
+            Value::Any(value) => value.to_string(),
         }
     }
 }
@@ -62,7 +64,7 @@ impl Value {
                 if !lhs.is_empty() && !rhs.is_empty() {
                     let lhs = lhs.iter().next().unwrap();
                     let rhs = rhs.iter().next().unwrap();
-                    lhs.0.matches(rhs.0) // && lhs.1.matches(rhs.1) // Make it a little fuzzier
+                    lhs.0.matches(rhs.0) && lhs.1.matches(rhs.1)
                 } else {
                     true
                 }
@@ -70,6 +72,8 @@ impl Value {
             (Value::Function(_), Value::Function(_)) => true,
             (Value::Unit, Value::Unit) => true,
             (Value::Never, Value::Never) => true,
+            (Value::Any(_), _) => true,
+            (_, Value::Any(_)) => true,
             _ => false,
         }
     }
@@ -94,11 +98,25 @@ pub struct Function {
 }
 
 impl Function {
-    fn eval(&self, scopes: &mut Scopes, library: &mut Library, args: Vec<Value>) -> Result<Value> {
-        ensure!(
-            args.len() == self.args.len(),
-            "Function argument count mismatch!",
-        );
+    fn eval(
+        &self,
+        scopes: &mut Scopes,
+        library: &mut Library,
+        args: Vec<Value>,
+        name_hint: Option<&str>,
+    ) -> Result<Value> {
+        if let Some(name) = name_hint {
+            ensure!(
+                args.len() == self.args.len(),
+                "Function argument count mismatch in function {}!",
+                name
+            );
+        } else {
+            ensure!(
+                args.len() == self.args.len(),
+                "Function argument count mismatch!"
+            );
+        }
         scopes.local.push(StackFrame::default());
         for (index, arg) in args.into_iter().enumerate() {
             let arg_def = &self.args[index];
@@ -107,6 +125,7 @@ impl Function {
                 (Value::Bool(_), Type::Bool) => (),
                 (Value::String(_), Type::String) => (),
                 (Value::Table(_), Type::Table) => (),
+                (_, Type::Any) => (),
                 _ => bail!(
                     "Function argument type mismatch in argument '{}'!",
                     arg_def.name.ident(),
@@ -146,18 +165,23 @@ impl Ord for Function {
 
 impl Scopes {
     fn get(&self, name: &str) -> Result<&Value> {
-        match self
+        let value = match self
             .local
             .iter()
             .rev()
             .find_map(|frame| frame.variables.get(name))
         {
-            Some(value) => Ok(value),
+            Some(value) => value,
             None => match self.global.get(name) {
-                Some(value) => Ok(value),
+                Some(value) => value,
                 None => bail!("Variable `{name}` not found!"),
             },
-        }
+        };
+        Ok(if let Value::Any(value) = value {
+            value.as_ref()
+        } else {
+            value
+        })
     }
 
     fn get_mut(&mut self, name: &str) -> Result<&mut Value> {
@@ -460,6 +484,7 @@ impl Eval for PrimaryExpression {
             PrimaryExpression::Array(array) => array.eval(scopes, library)?,
             PrimaryExpression::Table(_, table) => table.eval(scopes, library)?,
             PrimaryExpression::Lambda(_, function) => function.eval(scopes, library)?,
+            PrimaryExpression::Any(_) => Value::Any(Box::new(Value::Unit)),
         })
     }
 }
@@ -585,7 +610,12 @@ impl Eval for FunctionCall {
     fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
         let args = self.args.0.iter();
         let args = args
-            .map(|e| e.eval(scopes, library))
+            .map(|e| {
+                Ok(match e.eval(scopes, library)? {
+                    Value::Any(value) => value.as_ref().clone(),
+                    value => value,
+                })
+            })
             .collect::<std::result::Result<Vec<_>, _>>()?;
         if self.name.ident() == "eval" {
             match &args[..] {
@@ -603,25 +633,41 @@ impl Eval for FunctionCall {
                             scopes,
                             library,
                             vec![Value::String(String::from(character))],
+                            Some("for loop body"),
                         )?;
                     }
                     Ok(Value::Unit)
                 }
                 [Value::Array(array), Value::Function(body)] => {
                     for element in array {
-                        body.eval(scopes, library, vec![element.clone()])?;
+                        body.eval(
+                            scopes,
+                            library,
+                            vec![element.clone()],
+                            Some("for loop body"),
+                        )?;
                     }
                     Ok(Value::Unit)
                 }
                 [Value::Table(table), Value::Function(body)] => {
                     for (key, value) in table {
-                        body.eval(scopes, library, vec![key.clone(), value.clone()])?;
+                        body.eval(
+                            scopes,
+                            library,
+                            vec![key.clone(), value.clone()],
+                            Some("for loop body"),
+                        )?;
                     }
                     Ok(Value::Unit)
                 }
                 [Value::Int(initial), Value::Int(limit), Value::Function(body)] => {
                     for index in *initial..*limit {
-                        body.eval(scopes, library, vec![Value::Int(index)])?;
+                        body.eval(
+                            scopes,
+                            library,
+                            vec![Value::Int(index)],
+                            Some("for loop body"),
+                        )?;
                     }
                     Ok(Value::Unit)
                 }
@@ -635,7 +681,7 @@ impl Eval for FunctionCall {
             function(scopes, args)
         } else {
             let function = scopes.get_function(self.name.ident())?.clone();
-            function.eval(scopes, library, args)
+            function.eval(scopes, library, args, Some(self.name.ident()))
         }
     }
 }
@@ -709,10 +755,14 @@ impl AssignTo for Access {
                         bail!("Array index out of bounds! Index: {}", index);
                     }
                     let target = target.get_mut(index as usize).unwrap();
-                    if !target.matches(&value) {
-                        bail!("Type mismatch in assignment!");
+                    if let Value::Any(target) = target {
+                        *target.as_mut() = value;
+                    } else {
+                        if !target.matches(&value) {
+                            bail!("Type mismatch in assignment!");
+                        }
+                        *target = value;
                     }
-                    *target = value;
                 }
                 (target, index, value) => bail!(
                     "You can't assign to index {:?}[{:?}] = {:?}, type mismatch!",
@@ -724,10 +774,14 @@ impl AssignTo for Access {
             return Ok(());
         }
 
-        if !target.matches(&value) {
-            bail!("Type mismatch in assignment!");
+        if let Value::Any(target) = target {
+            *target.as_mut() = value;
+        } else {
+            if !target.matches(&value) {
+                bail!("Type mismatch in assignment!");
+            }
+            *target = value;
         }
-        *target = value;
         Ok(())
     }
 }
