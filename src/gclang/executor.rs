@@ -625,6 +625,14 @@ impl Eval for FunctionCall {
                 }
                 _ => bail!(r#"Usage: eval("some_global_variable = \"Evaluated\";");"#),
             }
+        } else if self.name.ident() == "import" {
+            match &args[..] {
+                [Value::String(code)] => {
+                    Program::parse(code)?.import(scopes, library)?;
+                    Ok(Value::Unit)
+                }
+                _ => bail!(r#"Usage: import("fn something() {{}}");"#),
+            }
         } else if self.name.ident() == "for" {
             match &args[..] {
                 [Value::String(string), Value::Function(body)] => {
@@ -787,11 +795,16 @@ impl AssignTo for Access {
 }
 
 impl Program {
-    pub fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<()> {
-        scopes.local.push(StackFrame::default());
+    pub fn import(&self, scopes: &mut Scopes, library: &mut Library) -> Result<()> {
         for statement in &self.statements {
             statement.eval(scopes, library)?;
         }
+        Ok(())
+    }
+
+    pub fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<()> {
+        scopes.local.push(StackFrame::default());
+        self.import(scopes, library)?;
         scopes.local.pop();
         Ok(())
     }

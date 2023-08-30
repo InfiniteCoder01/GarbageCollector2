@@ -57,16 +57,41 @@ impl Library<'_> {
                 _ => bail!(r#"Usage: trim("   Some text   ")"#)
             })
         });
-        library_function!(library += builtin_file(_scopes, args) {
-            let files = hash_map! {
-                "gcsh.gc" => include_str!("programs/gcsh.gc"),
-                "bash.gc" => include_str!("programs/bash.gc"),
-                "ls.gc" => include_str!("programs/ls.gc"),
-                "neofetch.gc" => include_str!("programs/neofetch.gc"),
-            };
-            Ok(match &args[..] {
-                [Value::String(filename)] => Value::String(String::from(*files.get(filename.as_str()).context(format!("File '{}' not found!", filename))?)),
-                _ => bail!(r#"Usage: builtin_file("bash.gc")"#)
+        library_function!(library += builtin_filesystem(_scopes, args) {
+            ensure!(args.is_empty(), "builtin_filesystem was not ment to be used with args!");
+
+            macro_rules! define_file {
+                ($($path: literal = $value: expr;)*) => {
+                    Value::Table(btree_map! {
+                        $(Value::String(String::from($path)) => $value,)*
+                    })
+                };
+                ($path: literal) => {
+                    Value::String(String::from(include_str!($path)))
+                };
+            }
+
+            macro_rules! embed_file {
+                ($content: literal) => {
+                    Value::String(String::from($content))
+                };
+            }
+
+            Ok(define_file! {
+                "home" = define_file! {};
+                "bin" = define_file! {
+                    "gcsh" = define_file!("programs/gcsh.gc");
+
+                    "bash" = define_file!("programs/bash.gc");
+                    "fish" = define_file!("programs/bash.gc");
+                    "zsh" = define_file!("programs/bash.gc");
+                    "sh" = define_file!("programs/bash.gc");
+
+                    "neofetch" = define_file!("programs/neofetch.gc");
+
+                    "clear" = embed_file!("screen_buffer = \"\";");
+                    "ls" = define_file!("programs/ls.gc");
+                };
             })
         });
         library
