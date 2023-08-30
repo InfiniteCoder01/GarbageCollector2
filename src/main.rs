@@ -215,6 +215,7 @@ impl speedy2d::window::WindowHandler for Game {
         if let Some(program) = &mut self.input.terminal {
             use gclang::Value;
             get_screen_buffer(&mut self.input.scopes);
+            let (screen_width, screen_height) = (52, 27);
 
             let mut library = gclang::Library::with_std();
             library_function!(library += print (scopes, args) {
@@ -241,6 +242,14 @@ impl speedy2d::window::WindowHandler for Game {
                 ensure!(args.is_empty(), "input() was not ment to be used with arguments!");
                 Ok(Value::String(self.input.typed_text.clone()))
             });
+            library_function!(library += screen_width (_scopes, args) {
+                ensure!(args.is_empty(), "screen_width() was not ment to be used with arguments!");
+                Ok(Value::Int(screen_width as _))
+            });
+            library_function!(library += screen_height (_scopes, args) {
+                ensure!(args.is_empty(), "screen_height() was not ment to be used with arguments!");
+                Ok(Value::Int(screen_height as _))
+            });
             if let Err(err) = program.eval(&mut self.input.scopes, &mut library) {
                 let screen = get_screen_buffer(&mut self.input.scopes);
                 screen.push_str(&err.to_string());
@@ -256,42 +265,25 @@ impl speedy2d::window::WindowHandler for Game {
                 &assets.terminal,
             );
 
-            let (screen_width, screen_height) = (52, 27);
             let screen = get_screen_buffer(&mut self.input.scopes);
-
-            let mut line_width = 0;
-            let mut new_screen = String::new();
-            for ch in screen.chars() {
-                // TODO: Better word wrap
-                if line_width >= screen_width {
-                    line_width = 0;
-                    if ch != '\n' {
-                        new_screen.push('\n');
-                    }
-                }
-                if ch == '\n' {
-                    line_width = 0;
-                } else {
-                    line_width += 1;
-                }
-                new_screen.push(ch);
-            }
-            *screen = new_screen;
-
             graphics.draw_text(
                 tl + size / Vec2::new(17.0, 14.0),
                 Color::GREEN, // TODO: Colored text via \x1b\xRR\xGG\xBB, to reset: \x18
                 &assets.font.layout_text(
-                    &screen
-                        .split_inclusive('\n')
-                        .rev()
-                        .take(screen_height)
-                        .collect::<Vec<_>>()
-                        .iter()
-                        .rev()
-                        .copied()
-                        .collect::<Vec<_>>()
-                        .join(""),
+                    &textwrap::fill(
+                        screen,
+                        textwrap::Options::new(screen_width)
+                            .word_separator(textwrap::WordSeparator::AsciiSpace),
+                    )
+                    .split_inclusive('\n')
+                    .rev()
+                    .take(screen_height)
+                    .collect::<Vec<_>>()
+                    .iter()
+                    .rev()
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(""),
                     (size.y - 26.0) / 30.0,
                     Default::default(),
                 ),
