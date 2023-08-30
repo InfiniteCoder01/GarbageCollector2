@@ -1,8 +1,49 @@
 use crate::ensure_type;
 
 use super::parser::*;
-use anyhow::*;
+use anyhow::{anyhow, Context, Error};
+use laps::ast::NonEmptySepList;
 use std::collections::{BTreeMap, HashMap};
+
+pub type Result<T> = std::result::Result<T, Exception>;
+
+pub enum Exception {
+    Error(Error),
+    Return(Value),
+}
+
+impl From<anyhow::Error> for Exception {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Error(error)
+    }
+}
+
+#[macro_export]
+macro_rules! ensure {
+    ($cond: expr $(,)?) => {
+        ensure!($expr, concat!("Ensure failed! Condition: ", stringify!($cond)));
+    };
+    ($cond: expr, $fmt:expr$(, $($arg:tt)*)?) => {
+        if !($cond) {
+            bail!($fmt$(, $($arg)*)?);
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! bail {
+    ($fmt:expr$(, $($arg:tt)*)?) => {
+        return Err($crate::gclang::Exception::Error(anyhow!($fmt$(, $($arg)*)?)))
+    };
+}
+
+#[allow(non_snake_case)]
+pub fn Ok<T>(value: T) -> Result<T> {
+    Result::Ok(value)
+}
+
+pub use bail;
+pub use ensure;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Value {
@@ -126,10 +167,13 @@ impl Function {
                 (Value::String(_), Type::String) => (),
                 (Value::Table(_), Type::Table) => (),
                 (_, Type::Any) => (),
-                _ => bail!(
-                    "Function argument type mismatch in argument '{}'!",
-                    arg_def.name.ident(),
-                ),
+                _ => {
+                    scopes.local.pop();
+                    bail!(
+                        "Function argument type mismatch in argument '{}'!",
+                        arg_def.name.ident(),
+                    )
+                }
             }
             scopes
                 .local
@@ -138,9 +182,12 @@ impl Function {
                 .variables
                 .insert(arg_def.name.ident().to_owned(), arg);
         }
-        let result = self.expression.eval(scopes, library)?;
+        let result = self.expression.eval(scopes, library);
         scopes.local.pop();
-        Ok(result)
+        if let Err(Exception::Return(result)) = result {
+            return Ok(result);
+        }
+        result
     }
 }
 
@@ -263,6 +310,7 @@ impl Eval for Statement {
             }
             Statement::FnDecl(decl) => decl.eval(scopes, library),
             Statement::If(statement) => statement.eval(scopes, library),
+            Statement::Return(_, expr, _) => Err(Exception::Return(expr.eval(scopes, library)?)),
             Statement::Expression(expr) => expr.eval(scopes, library),
             Statement::End(_) => Ok(Value::Never),
         }
@@ -319,17 +367,38 @@ impl Eval for ExpressionStatement {
     }
 }
 
+fn foreach_list<T, S>(
+    list: &NonEmptySepList<T, S>,
+    last_separator: Option<&S>,
+    mut f: impl FnMut(Option<&S>, &T) -> Result<()>,
+) -> Result<()> {
+    match list {
+        NonEmptySepList::One(value) => f(last_separator, value)?,
+        NonEmptySepList::More(lhs, separator, rhs) => {
+            f(last_separator, lhs)?;
+            foreach_list(rhs.as_ref(), Some(separator), f)?;
+        }
+    }
+    Ok(())
+}
+
 macro_rules! eval_expression {
     ($type: ident $($lhs_type: ident ($lhs: ident) $rhs_type: ident ($rhs: ident) => $expr: expr;)+) => {
         impl Eval for $type {
             fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
-                Ok(match self {
-                    Self::One(expr) => expr.eval(scopes, library)?,
-                    Self::More(lhs, _, rhs) => match (lhs.eval(scopes, library)?, rhs.eval(scopes, library)?) {
-                        $((Value::$lhs_type($lhs), Value::$rhs_type($rhs)) => $expr,)+
-                        _ => bail!("Type mismatch!"),
-                    },
-                })
+                let mut lhs = None;
+                foreach_list(self, None, |_, rhs| {
+                    if let Some(value) = lhs.take() {
+                        lhs = Some(match (value, rhs.eval(scopes, library)?) {
+                            $((Value::$lhs_type($lhs), Value::$rhs_type($rhs)) => $expr,)+
+                            _ => bail!("Type mismatch!"),
+                        });
+                    } else {
+                        lhs = Some(rhs.eval(scopes, library)?);
+                    }
+                    Ok(())
+                })?;
+                Ok(lhs.unwrap())
             }
         }
     };
@@ -337,16 +406,19 @@ macro_rules! eval_expression {
     ($type: ident $lhs: ident $rhs: ident $($path: path => $expr: expr;)+) => {
         impl Eval for $type {
             fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
-                Ok(match self {
-                    Self::One(expr) => expr.eval(scopes, library)?,
-                    Self::More(lhs, op, rhs) => {
-                        let $lhs = lhs.eval(scopes, library)?;
+                let mut lhs: Option<Value> = None;
+                foreach_list(self, None, |op, rhs| {
+                    if let Some($lhs) = lhs.take() {
                         let $rhs = rhs.eval(scopes, library)?;
-                        match op {
+                        lhs = Some(match op.unwrap() {
                             $($path(_) => $expr,)+
-                        }
+                        });
+                    } else {
+                        lhs = Some(rhs.eval(scopes, library)?);
                     }
-                })
+                    Ok(())
+                })?;
+                Ok(lhs.unwrap())
             }
         }
     }
@@ -441,7 +513,7 @@ eval_expression! {
         _ => bail!("Type mismatch!"),
     };
     MulOps::Div => match (lhs, rhs) {
-        (Value::Int(lhs), Value::Int(rhs)) => Value::Int(lhs * rhs),
+        (Value::Int(lhs), Value::Int(rhs)) => Value::Int(lhs / rhs),
         _ => bail!("Type mismatch!"),
     };
     MulOps::Mod => match (lhs, rhs) {
@@ -482,6 +554,7 @@ impl Eval for PrimaryExpression {
             PrimaryExpression::LInt(value) => Value::Int(value.inner() as i32),
             PrimaryExpression::LBoolTrue(_) => Value::Bool(true),
             PrimaryExpression::LBoolFalse(_) => Value::Bool(false),
+            PrimaryExpression::LUnit(_) => Value::Unit,
             PrimaryExpression::LString(value) => Value::String(value.inner().to_owned()),
             PrimaryExpression::Array(array) => array.eval(scopes, library)?,
             PrimaryExpression::Table(_, table) => table.eval(scopes, library)?,
@@ -500,18 +573,38 @@ impl Eval for ParenExpression {
 impl Eval for BlockExpression {
     fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
         scopes.local.push(StackFrame::default());
-        if let Some(statements) = &self.statements {
-            for statement in &statements.0 {
-                statement.eval(scopes, library)?;
+        let mut eval = || -> Result<()> {
+            if let Some(statements) = &self.statements {
+                for statement in &statements.0 {
+                    statement.eval(scopes, library)?;
+                }
+            }
+            Ok(())
+        };
+        let result = eval();
+        scopes.local.pop();
+        if let Some(with_handlers) = &self.with_handlers {
+            if let Err(exception) = &result {
+                for EffectHandler(_, name, handler) in &with_handlers.handlers.0 {
+                    let handler = match handler.eval(scopes, library)? {
+                        Value::Function(handler) => handler,
+                        _ => unreachable!(),
+                    };
+                    if name.ident() == "exception" {
+                        if let Exception::Error(err) = &exception {
+                            return handler.eval(
+                                scopes,
+                                library,
+                                vec![Value::String(err.to_string())],
+                                Some(name.ident()),
+                            );
+                        }
+                    }
+                }
             }
         }
-        let result = if let Some(trailing_return) = &self.trailing_return {
-            trailing_return.expression.eval(scopes, library)?
-        } else {
-            Value::Unit
-        };
-        scopes.local.pop();
-        Ok(result)
+        result?;
+        Ok(Value::Unit)
     }
 }
 
@@ -806,8 +899,9 @@ impl Program {
 
     pub fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<()> {
         scopes.local.push(StackFrame::default());
-        self.import(scopes, library)?;
+        let result = self.import(scopes, library);
         scopes.local.pop();
+        result?;
         Ok(())
     }
 }

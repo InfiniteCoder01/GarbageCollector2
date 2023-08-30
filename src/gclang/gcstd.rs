@@ -1,10 +1,23 @@
 use super::*;
-use anyhow::*;
 use map_macro::*;
 
 impl Library<'_> {
     pub fn with_std() -> Self {
         let mut library = Self::default();
+        // * ------------------------------------- Math ------------------------------------- * //
+        library_function!(library += min(_scopes, args) {
+            Ok(Value::Int(**args.iter().map(|arg| match arg {
+                Value::Int(arg) => Ok(arg),
+                _ => bail!("Usage: min(1, 2, 3)")
+            }).collect::<std::result::Result<Vec<_>, _>>()?.iter().min().context("Usage: min(1, 2, 3)")?))
+        });
+        library_function!(library += max(_scopes, args) {
+            Ok(Value::Int(**args.iter().map(|arg| match arg {
+                Value::Int(arg) => Ok(arg),
+                _ => bail!("Usage: max(1, 2, 3)")
+            }).collect::<std::result::Result<Vec<_>, _>>()?.iter().max().context("Usage: max(1, 2, 3)")?))
+        });
+        // * ---------------------------------- Containers ---------------------------------- * //
         library_function!(library += len(_scopes, args) {
             Ok(match &args[..] {
                 [Value::String(value)] => Value::Int(value.len() as _),
@@ -24,14 +37,14 @@ impl Library<'_> {
             let mut args = args;
             Ok(match args.as_mut_slice() {
                 [Value::String(value), Value::Int(index)] => {
-                    if *index < 0 || *index as usize > value.len() {
+                    if *index < 0 || *index as usize >= value.len() {
                         bail!("Remove index is out of bounds! Index: {}", index);
                     }
                     value.remove(*index as _);
                     Value::String(value.clone())
                 }
                 [Value::Array(value), Value::Int(index)] => {
-                    if *index < 0 || *index as usize > value.len() {
+                    if *index < 0 || *index as usize >= value.len() {
                         bail!("Remove index is out of bounds! Index: {}", index);
                     }
                     value.remove(*index as _);
@@ -51,6 +64,7 @@ impl Library<'_> {
                 _ => bail!(r#"Usage: contains("Some text", "te")"#)
             })
         });
+        // * ------------------------------------- Misc ------------------------------------- * //
         library_function!(library += trim(_scopes, args) {
             Ok(match &args[..] {
                 [Value::String(value)] => Value::String(value.trim().to_owned()),
@@ -92,6 +106,9 @@ impl Library<'_> {
 
                     "clear" = embed_file!("screen_buffer = \"\";");
                     "ls" = define_file!("programs/ls.gc");
+                };
+                "lib" = define_file! {
+                    "curses.gc" = define_file!("programs/curses.gc");
                 };
             })
         });

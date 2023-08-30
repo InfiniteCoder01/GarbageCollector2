@@ -1,0 +1,12 @@
+fn clear() {
+    screen_buffer = (" " * screen_width() + "\n") * (screen_height() - 2);
+    pop(screen_buffer);
+}
+
+fn mvaddch(y: int, x: int, char: String) {
+    if x < 0 || y < 0 || x >= screen_width() || y >= screen_height() {
+        return false;
+    }
+    screen_buffer[y * (screen_width() + 1) + x] = char;
+    return true;
+}

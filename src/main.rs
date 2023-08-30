@@ -4,7 +4,7 @@ pub mod level;
 pub mod player;
 use assets::*;
 use level::{Level, LevelSave};
-use speedy2d::font::TextLayout;
+use speedy2d::font::{TextLayout, TextOptions};
 use speedy2d::window::{MouseButton, VirtualKeyCode, WindowHelper};
 
 fn main() {
@@ -220,7 +220,10 @@ impl speedy2d::window::WindowHandler for Game {
             let screen_height = 30usize;
             let screen_width = (((assets.terminal.size().x - border.x * 2) * screen_height as u32
                 / (assets.terminal.size().y - border.y * 2)) as f32
-                / assets.font.layout_text("#", 1.0, Default::default()).width()) as usize;
+                / assets
+                    .font
+                    .layout_text("#", 1.0, Default::default())
+                    .width()) as usize;
 
             let mut library = gclang::Library::with_std();
             library_function!(library += print (scopes, args) {
@@ -230,7 +233,7 @@ impl speedy2d::window::WindowHandler for Game {
                     .collect::<Vec<_>>()
                     .join(", ");
                 get_screen_buffer(scopes).push_str(&output);
-                Ok(Value::Unit)
+                gclang::Ok(Value::Unit)
             });
             library_function!(library += println (scopes, args) {
                 let output = args
@@ -241,21 +244,23 @@ impl speedy2d::window::WindowHandler for Game {
                 let screen = get_screen_buffer(scopes);
                 screen.push_str(&output);
                 screen.push('\n');
-                Ok(Value::Unit)
+                gclang::Ok(Value::Unit)
             });
             library_function!(library += input (_scopes, args) {
-                ensure!(args.is_empty(), "input() was not ment to be used with arguments!");
-                Ok(Value::String(self.input.typed_text.clone()))
+                gclang::ensure!(args.is_empty(), "input() was not ment to be used with arguments!");
+                gclang::Ok(Value::String(self.input.typed_text.clone()))
             });
             library_function!(library += screen_width (_scopes, args) {
-                ensure!(args.is_empty(), "screen_width() was not ment to be used with arguments!");
-                Ok(Value::Int(screen_width as _))
+                gclang::ensure!(args.is_empty(), "screen_width() was not ment to be used with arguments!");
+                gclang::Ok(Value::Int(screen_width as _))
             });
             library_function!(library += screen_height (_scopes, args) {
-                ensure!(args.is_empty(), "screen_height() was not ment to be used with arguments!");
-                Ok(Value::Int(screen_height as _))
+                gclang::ensure!(args.is_empty(), "screen_height() was not ment to be used with arguments!");
+                gclang::Ok(Value::Int(screen_height as _))
             });
-            if let Err(err) = terminal.program.eval(&mut self.input.scopes, &mut library) {
+            if let Err(gclang::Exception::Error(err)) =
+                terminal.program.eval(&mut self.input.scopes, &mut library)
+            {
                 let screen = get_screen_buffer(&mut self.input.scopes);
                 screen.push_str("\x1bff0000");
                 screen.push_str(&err.to_string());
@@ -291,6 +296,9 @@ impl speedy2d::window::WindowHandler for Game {
                         sections.push((color, &line[last_index..index]));
                     }
                     if escape == "\x1b" {
+                        if line.len() <= index + 6 {
+                            continue;
+                        }
                         if let Result::Ok(color_hex) =
                             u32::from_str_radix(&line[index + 1..=index + 6], 16)
                         {
@@ -305,10 +313,11 @@ impl speedy2d::window::WindowHandler for Game {
                 if visible {
                     sections.push((color, &line[last_index..]));
                     for (color, section) in sections {
-                        let section =
-                            &assets
-                                .font
-                                .layout_text(section, line_height, Default::default());
+                        let section = &assets.font.layout_text(
+                            section,
+                            line_height,
+                            TextOptions::default().with_trim_each_line(false),
+                        );
                         graphics.draw_text(cursor, color.unwrap_or(Color::GREEN), section);
                         cursor.x += section.width();
                     }

@@ -13,28 +13,35 @@ fn get_root_path(relative_path: String) {
 }
 
 fn read_file(path: String) {
+    with {
+        ctl exception(_: String) {
+            println("TODO: Throw file not found!");
+        }
+    }
+
     path = get_root_path(path);
     path[0] = "";
 
-    let file = any;
-    file = filesystem;
-    if len(path) > 0  {
-        if path[len(path) - 1] == "/" {
-            path[len(path) - 1] = "";
-        }
-
-        let filename = "";
-        for(path, fn (char: String) {
-            if char == "/" {
-                file = file[filename];
-                filename = "";
-            } else {
-                filename = filename + char;
-            }
-        });
-        file = file[filename];
+    if len(path) == 0 {
+        return filesystem;
     }
-    return file;
+
+    let directory = any;
+    directory = filesystem;
+    if path[len(path) - 1] == "/" {
+        path[len(path) - 1] = "";
+    }
+
+    let filename = "";
+    for(path, fn (char: String) {
+        if char == "/" {
+            directory = directory[filename];
+            filename = "";
+        } else {
+            filename = filename + char;
+        }
+    });
+    return directory[filename];
 }
 
 // TODO: parse args like -l -la --list and stuff

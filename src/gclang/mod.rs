@@ -6,6 +6,8 @@ pub use executor::Library;
 pub use executor::Value;
 pub use parser::Program;
 pub use executor::Scopes;
+pub use anyhow::{anyhow, Error, Context};
+pub use executor::{Result, Exception, ensure, bail, Ok};
 
 #[macro_export]
 macro_rules! library_function {

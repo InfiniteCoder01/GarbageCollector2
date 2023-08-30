@@ -13,7 +13,7 @@ use std::{fmt, str::FromStr};
 enum TokenKind {
     #[skip(r"\s+|//.+\n")]
     _Skip,
-    #[regex(r"global|let|fn|if|else|true|false|return|table|any")]
+    #[regex(r"global|let|fn|if|else|true|false|unit|return|table|any|with|ctl")]
     Keyword(Keyword),
     #[regex(r"int|bool|String|Table|Any")]
     Type(Type),
@@ -40,9 +40,12 @@ enum Keyword {
     Else,
     True,
     False,
+    Unit,
     Return,
     Table,
     Any,
+    With,
+    Ctl,
 }
 
 impl FromStr for Keyword {
@@ -57,9 +60,12 @@ impl FromStr for Keyword {
             "else" => Ok(Self::Else),
             "true" => Ok(Self::True),
             "false" => Ok(Self::False),
+            "unit" => Ok(Self::Unit),
             "return" => Ok(Self::Return),
             "table" => Ok(Self::Table),
             "any" => Ok(Self::Any),
+            "with" => Ok(Self::With),
+            "ctl" => Ok(Self::Ctl),
             _ => Err(()),
         }
     }
@@ -75,9 +81,12 @@ impl fmt::Display for Keyword {
             Self::Else => write!(f, "else"),
             Self::True => write!(f, "true"),
             Self::False => write!(f, "false"),
+            Self::Unit => write!(f, "unit"),
             Self::Return => write!(f, "return"),
             Self::Table => write!(f, "table"),
             Self::Any => write!(f, "any"),
+            Self::With => write!(f, "with"),
+            Self::Ctl => write!(f, "ctl"),
         }
     }
 }
@@ -213,9 +222,12 @@ token_ast! {
     [else] => { kind: TokenKind::Keyword(Keyword::Else) },
     [true] => { kind: TokenKind::Keyword(Keyword::True) },
     [false] => { kind: TokenKind::Keyword(Keyword::False) },
+    [unit] => { kind: TokenKind::Keyword(Keyword::Unit) },
     [return] => { kind: TokenKind::Keyword(Keyword::Return) },
     [table] => { kind: TokenKind::Keyword(Keyword::Table) },
     [any] => { kind: TokenKind::Keyword(Keyword::Any) },
+    [with] => { kind: TokenKind::Keyword(Keyword::With) },
+    [ctl] => { kind: TokenKind::Keyword(Keyword::Ctl) },
     [type] => { kind: TokenKind::Type(_), prompt: "type" },
     [lint] => { kind: TokenKind::Int(_), prompt: "integer literal" },
     [lstring] => { kind: TokenKind::String(_), prompt: "string literal" },
@@ -297,6 +309,7 @@ pub(super) enum Statement {
     LocalDecl(Token![let], Token![ident], Token![=], Expression, Token![;]),
     FnDecl(Box<FnDecl>),
     If(Box<IfStatement>),
+    Return(Token![return], Expression, Token![;]),
     Expression(ExpressionStatement),
     End(Token![eof]),
 }
@@ -470,6 +483,7 @@ pub(super) enum PrimaryExpression {
     LString(Token![lstring]),
     LBoolTrue(Token![true]),
     LBoolFalse(Token![false]),
+    LUnit(Token![unit]),
     Array(Array),
     Table(Token![table], Table),
     Lambda(Token![fn], FnBlock),
@@ -488,17 +502,9 @@ pub(super) struct ParenExpression {
 #[token(Token)]
 pub(super) struct BlockExpression {
     lbk: Token![lbk],
+    pub(super) with_handlers: Option<WithHandlers>,
     pub(super) statements: Option<NonEmptySeq<Statement>>,
-    pub(super) trailing_return: Option<TrailingReturn>,
     rbk: Token![rbk],
-}
-
-#[derive(Parse, Clone, Debug)]
-#[token(Token)]
-pub(super) struct TrailingReturn {
-    _ret: Token![return],
-    pub(super) expression: Expression,
-    _semi: Token![;],
 }
 
 impl Spanned for BlockExpression {
@@ -506,6 +512,23 @@ impl Spanned for BlockExpression {
         self.lbk.span().into_end_updated(self.rbk.span())
     }
 }
+
+#[derive(Parse, Clone, Debug)]
+#[token(Token)]
+pub(super) struct WithHandlers {
+    _with: Token![with],
+    _lbk: Token![lbk],
+    pub(super) handlers: NonEmptySeq<EffectHandler>,
+    _rbk: Token![rbk],
+}
+
+#[derive(Parse, Clone, Debug)]
+#[token(Token)]
+pub(super) struct EffectHandler(
+    pub(super) Token![ctl],
+    pub(super) Token![ident],
+    pub(super) FnBlock,
+);
 
 #[derive(Parse, Clone, Spanned, Debug)]
 #[token(Token)]

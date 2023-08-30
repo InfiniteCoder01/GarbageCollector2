@@ -1466,7 +1466,7 @@ checksum = "d3cdbe58cd9ad45f36ca3f7cbfb4d4ff1350fa30cf5d403a7106809f8b7734d3"
 [[package]]
 name = "speedy2d"
 version = "1.12.0"
-source = "git+https://github.com/InfiniteCoder01/Speedy2D.git?branch=ImprovedVectors#5710090c49853694e2171519b206d45ca9075b5e"
+source = "git+https://github.com/InfiniteCoder01/Speedy2D.git?branch=master#cd6507c4850674571c4883d58de0d389909c136c"
 dependencies = [
  "backtrace",
  "earcutr",
