@@ -62,6 +62,7 @@ impl Library<'_> {
                 "gcsh.gc" => include_str!("programs/gcsh.gc"),
                 "bash.gc" => include_str!("programs/bash.gc"),
                 "ls.gc" => include_str!("programs/ls.gc"),
+                "neofetch.gc" => include_str!("programs/neofetch.gc"),
             };
             Ok(match &args[..] {
                 [Value::String(filename)] => Value::String(String::from(*files.get(filename.as_str()).context(format!("File '{}' not found!", filename))?)),

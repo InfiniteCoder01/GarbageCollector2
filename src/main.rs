@@ -216,7 +216,11 @@ impl speedy2d::window::WindowHandler for Game {
         if let Some(terminal) = &mut self.input.terminal {
             use gclang::Value;
             get_screen_buffer(&mut self.input.scopes);
-            let (screen_width, screen_height) = (52, 27);
+            let border = UVec2::from(13);
+            let screen_height = 30usize;
+            let screen_width = (((assets.terminal.size().x - border.x * 2) * screen_height as u32
+                / (assets.terminal.size().y - border.y * 2)) as f32
+                / assets.font.layout_text("#", 1.0, Default::default()).width()) as usize;
 
             let mut library = gclang::Library::with_std();
             library_function!(library += print (scopes, args) {
@@ -267,14 +271,10 @@ impl speedy2d::window::WindowHandler for Game {
                 &assets.terminal,
             );
 
-            let border = Vec2::from(13.0) * scale;
+            let border = border.into_f32() * scale;
             let tl = tl + border;
             let line_height = (size.y - border.y * 2.0) / screen_height as f32;
-            let screen = textwrap::fill(
-                get_screen_buffer(&mut self.input.scopes),
-                textwrap::Options::new(screen_width)
-                    .word_separator(textwrap::WordSeparator::AsciiSpace)
-            );
+            let screen = get_screen_buffer(&mut self.input.scopes);
             let mut cursor = tl;
             let mut color = None;
             let line_count = screen.matches('\n').count() + 1;

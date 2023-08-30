@@ -9,6 +9,8 @@ global filesystem = table {
         "zsh" = builtin_file("bash.gc");
         "sh" = builtin_file("bash.gc");
 
+        "neofetch" = builtin_file("neofetch.gc");
+
         "clear" = "screen_buffer = \"\";";
         "ls" = builtin_file("ls.gc");
         // TODO: neofetch, sl
