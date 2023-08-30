@@ -82,7 +82,11 @@ fn gcsh_execute() {
             } else {
                 println("Command '" + args[0] + "' not found!");
             }
+        } else {
+            gcsh_executable = "";
         }
+    } else {
+        gcsh_executable = "";
     }
 }
 
@@ -102,7 +106,7 @@ if len(args) > 1 {
     gcsh_execute();
 } else {
     if gcsh_executable == "" {
-        print("/home\n> ");
+        print("\x1b009092" + gcsh_working_directory + "\x18\n> ");
         gcsh_executable = "/bin/gcsh";
         gcsh_command = "";
     } else if gcsh_executable == "/bin/gcsh" {

@@ -175,8 +175,9 @@ impl speedy2d::window::WindowHandler for Game {
             } else {
                 index as usize % self.input.palette.len()
             };
+        } else if let Some(terminal) = &mut self.input.terminal {
+            terminal.scroll = (terminal.scroll as f32 + scroll).max(0.0) as _;
         }
-        // TODO: Scroll terminal content
     }
 
     fn on_draw(&mut self, helper: &mut WindowHelper, graphics: &mut speedy2d::Graphics2D) {
@@ -212,7 +213,7 @@ impl speedy2d::window::WindowHandler for Game {
             )
         }
 
-        if let Some(program) = &mut self.input.terminal {
+        if let Some(terminal) = &mut self.input.terminal {
             use gclang::Value;
             get_screen_buffer(&mut self.input.scopes);
             let (screen_width, screen_height) = (52, 27);
@@ -250,44 +251,71 @@ impl speedy2d::window::WindowHandler for Game {
                 ensure!(args.is_empty(), "screen_height() was not ment to be used with arguments!");
                 Ok(Value::Int(screen_height as _))
             });
-            if let Err(err) = program.eval(&mut self.input.scopes, &mut library) {
+            if let Err(err) = terminal.program.eval(&mut self.input.scopes, &mut library) {
                 let screen = get_screen_buffer(&mut self.input.scopes);
+                screen.push_str("\x1bff0000");
                 screen.push_str(&err.to_string());
-                screen.push('\n');
+                screen.push_str("\x18\n");
             }
 
             // * Draw terminal
-            let size = assets.terminal.size().into_f32()
-                * (self.size.y as f32 / 1.2 / assets.terminal.size().y as f32);
+            let scale = self.size.y as f32 / 1.2 / assets.terminal.size().y as f32;
+            let size = assets.terminal.size().into_f32() * scale;
             let tl = (self.size.into_f32() - size) / 2.0;
             graphics.draw_rectangle_image(
                 speedy2d::shape::Rectangle::new(tl, tl + size),
                 &assets.terminal,
             );
 
-            let screen = get_screen_buffer(&mut self.input.scopes);
-            graphics.draw_text(
-                tl + size / Vec2::new(17.0, 14.0),
-                Color::GREEN, // TODO: Colored text via \x1b\xRR\xGG\xBB, to reset: \x18
-                &assets.font.layout_text(
-                    &textwrap::fill(
-                        screen,
-                        textwrap::Options::new(screen_width)
-                            .word_separator(textwrap::WordSeparator::AsciiSpace),
-                    )
-                    .split_inclusive('\n')
-                    .rev()
-                    .take(screen_height)
-                    .collect::<Vec<_>>()
-                    .iter()
-                    .rev()
-                    .copied()
-                    .collect::<Vec<_>>()
-                    .join(""),
-                    (size.y - 26.0) / 30.0,
-                    Default::default(),
-                ),
-            )
+            let border = Vec2::from(13.0) * scale;
+            let tl = tl + border;
+            let line_height = (size.y - border.y * 2.0) / screen_height as f32;
+            let screen = textwrap::fill(
+                get_screen_buffer(&mut self.input.scopes),
+                textwrap::Options::new(screen_width)
+                    .word_separator(textwrap::WordSeparator::AsciiSpace)
+            );
+            let mut cursor = tl;
+            let mut color = None;
+            let line_count = screen.matches('\n').count() + 1;
+            terminal.scroll = terminal
+                .scroll
+                .min(line_count.max(screen_height) - screen_height + 1);
+            for (index, line) in screen.split('\n').enumerate() {
+                let visible = (terminal.scroll..terminal.scroll + screen_height)
+                    .contains(&(line_count - index));
+                let mut sections = Vec::new();
+                let mut last_index = 0;
+                for (index, escape) in line.match_indices(['\x1b', '\x18']) {
+                    if visible {
+                        sections.push((color, &line[last_index..index]));
+                    }
+                    if escape == "\x1b" {
+                        if let Result::Ok(color_hex) =
+                            u32::from_str_radix(&line[index + 1..=index + 6], 16)
+                        {
+                            color = Some(Color::from_hex_rgb(color_hex));
+                        }
+                        last_index = index + 7;
+                    } else {
+                        color = None;
+                        last_index = index + 1;
+                    }
+                }
+                if visible {
+                    sections.push((color, &line[last_index..]));
+                    for (color, section) in sections {
+                        let section =
+                            &assets
+                                .font
+                                .layout_text(section, line_height, Default::default());
+                        graphics.draw_text(cursor, color.unwrap_or(Color::GREEN), section);
+                        cursor.x += section.width();
+                    }
+                    cursor.y += line_height;
+                    cursor.x = tl.x;
+                }
+            }
         }
 
         self.input.jump = false;

@@ -138,7 +138,18 @@ pub struct Input {
 
     pub typed_text: String,
     pub scopes: crate::gclang::Scopes,
-    pub terminal: Option<crate::gclang::Program>,
+    pub terminal: Option<Terminal>,
+}
+
+pub struct Terminal {
+    pub program: crate::gclang::Program,
+    pub scroll: usize,
+}
+
+impl Terminal {
+    pub fn new(program: crate::gclang::Program) -> Self {
+        Self { program, scroll: 0 }
+    }
 }
 
 impl Default for Input {
