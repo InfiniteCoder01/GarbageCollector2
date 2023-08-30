@@ -480,6 +480,8 @@ impl Eval for PrimaryExpression {
             PrimaryExpression::FuncCall(expr) => expr.eval(scopes, library)?,
             PrimaryExpression::Access(access) => access.eval(scopes, library)?,
             PrimaryExpression::LInt(value) => Value::Int(value.inner() as i32),
+            PrimaryExpression::LBoolTrue(_) => Value::Bool(true),
+            PrimaryExpression::LBoolFalse(_) => Value::Bool(false),
             PrimaryExpression::LString(value) => Value::String(value.inner().to_owned()),
             PrimaryExpression::Array(array) => array.eval(scopes, library)?,
             PrimaryExpression::Table(_, table) => table.eval(scopes, library)?,

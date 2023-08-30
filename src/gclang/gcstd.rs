@@ -88,6 +88,7 @@ impl Library<'_> {
                     "sh" = define_file!("programs/bash.gc");
 
                     "neofetch" = define_file!("programs/neofetch.gc");
+                    "sl" = define_file!("programs/sl.gc");
 
                     "clear" = embed_file!("screen_buffer = \"\";");
                     "ls" = define_file!("programs/ls.gc");

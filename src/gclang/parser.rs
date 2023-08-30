@@ -13,7 +13,7 @@ use std::{fmt, str::FromStr};
 enum TokenKind {
     #[skip(r"\s+|//.+\n")]
     _Skip,
-    #[regex(r"global|let|fn|if|else|return|table|any")]
+    #[regex(r"global|let|fn|if|else|true|false|return|table|any")]
     Keyword(Keyword),
     #[regex(r"int|bool|String|Table|Any")]
     Type(Type),
@@ -38,6 +38,8 @@ enum Keyword {
     Fn,
     If,
     Else,
+    True,
+    False,
     Return,
     Table,
     Any,
@@ -53,6 +55,8 @@ impl FromStr for Keyword {
             "fn" => Ok(Self::Fn),
             "if" => Ok(Self::If),
             "else" => Ok(Self::Else),
+            "true" => Ok(Self::True),
+            "false" => Ok(Self::False),
             "return" => Ok(Self::Return),
             "table" => Ok(Self::Table),
             "any" => Ok(Self::Any),
@@ -69,6 +73,8 @@ impl fmt::Display for Keyword {
             Self::Fn => write!(f, "fn"),
             Self::If => write!(f, "if"),
             Self::Else => write!(f, "else"),
+            Self::True => write!(f, "true"),
+            Self::False => write!(f, "false"),
             Self::Return => write!(f, "return"),
             Self::Table => write!(f, "table"),
             Self::Any => write!(f, "any"),
@@ -205,6 +211,8 @@ token_ast! {
     [fn] => { kind: TokenKind::Keyword(Keyword::Fn) },
     [if] => { kind: TokenKind::Keyword(Keyword::If) },
     [else] => { kind: TokenKind::Keyword(Keyword::Else) },
+    [true] => { kind: TokenKind::Keyword(Keyword::True) },
+    [false] => { kind: TokenKind::Keyword(Keyword::False) },
     [return] => { kind: TokenKind::Keyword(Keyword::Return) },
     [table] => { kind: TokenKind::Keyword(Keyword::Table) },
     [any] => { kind: TokenKind::Keyword(Keyword::Any) },
@@ -460,6 +468,8 @@ pub(super) enum PrimaryExpression {
     Access(Access),
     LInt(Token![lint]),
     LString(Token![lstring]),
+    LBoolTrue(Token![true]),
+    LBoolFalse(Token![false]),
     Array(Array),
     Table(Token![table], Table),
     Lambda(Token![fn], FnBlock),
