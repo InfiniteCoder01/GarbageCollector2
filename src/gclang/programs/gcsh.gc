@@ -1,6 +1,10 @@
 global args = [];
 global filesystem = builtin_filesystem();
 
+effect exception {
+    ctl error(error: String);
+}
+
 // ---------------------------------------- API ------------------------------------------ //
 fn get_root_path(relative_path: String) {
     // TODO: ./../
@@ -13,9 +17,9 @@ fn get_root_path(relative_path: String) {
 }
 
 fn read_file(path: String) {
-    with {
-        ctl exception(_: String) {
-            println("TODO: Throw file not found!");
+    with exception {
+        ctl error(_: String) exception {
+            error("File not found! Path: '" + path + "'!");
         }
     }
 
@@ -53,6 +57,13 @@ global gcsh_home_directory = "/home";
 global gcsh_working_directory = gcsh_home_directory;
 
 fn gcsh_execute() {
+    with exception {
+        ctl error(error: String) {
+            println("\x1bff0000Error: " + error + "\x18");
+            resume 0;
+        }
+    }
+
     gcsh_command = trim(gcsh_command);
     if len(gcsh_command) > 0 {
         if gcsh_command[0] != "#" {
@@ -76,7 +87,7 @@ fn gcsh_execute() {
             if contains(bin, args[0]) {
                 eval(bin[args[0]]);
             } else {
-                println("Command '" + args[0] + "' not found!");
+                println("\x1bff0000Command '" + args[0] + "' not found!\x18");
             }
         } else {
             gcsh_executable = "";
@@ -125,4 +136,3 @@ if len(args) > 1 {
         eval(read_file(gcsh_executable));
     }
 }
-

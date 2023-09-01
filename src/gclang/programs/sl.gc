@@ -149,8 +149,8 @@ global SL_FLY       = false;
 global SL_C51       = false;
 
 fn my_mvaddstr(y: int, x: int, str: String) {
-	with {
-		ctl exception(_: String) {
+	with exception {
+		ctl error(_: String) {
 			return false;
 		}
 	}

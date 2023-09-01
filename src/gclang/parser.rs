@@ -13,7 +13,7 @@ use std::{fmt, str::FromStr};
 enum TokenKind {
     #[skip(r"\s+|//.+\n")]
     _Skip,
-    #[regex(r"global|let|fn|if|else|true|false|unit|return|table|any|with|ctl")]
+    #[regex(r"global|let|fn|if|else|true|false|unit|return|table|any|with|ctl|effect|resume")]
     Keyword(Keyword),
     #[regex(r"int|bool|String|Table|Any")]
     Type(Type),
@@ -46,6 +46,8 @@ enum Keyword {
     Any,
     With,
     Ctl,
+    Effect,
+    Resume,
 }
 
 impl FromStr for Keyword {
@@ -66,6 +68,8 @@ impl FromStr for Keyword {
             "any" => Ok(Self::Any),
             "with" => Ok(Self::With),
             "ctl" => Ok(Self::Ctl),
+            "effect" => Ok(Self::Effect),
+            "resume" => Ok(Self::Resume),
             _ => Err(()),
         }
     }
@@ -87,11 +91,13 @@ impl fmt::Display for Keyword {
             Self::Any => write!(f, "any"),
             Self::With => write!(f, "with"),
             Self::Ctl => write!(f, "ctl"),
+            Self::Effect => write!(f, "effect"),
+            Self::Resume => write!(f, "resume"),
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Type {
     Int,
     Bool,
@@ -224,10 +230,12 @@ token_ast! {
     [false] => { kind: TokenKind::Keyword(Keyword::False) },
     [unit] => { kind: TokenKind::Keyword(Keyword::Unit) },
     [return] => { kind: TokenKind::Keyword(Keyword::Return) },
+    [resume] => { kind: TokenKind::Keyword(Keyword::Resume) },
     [table] => { kind: TokenKind::Keyword(Keyword::Table) },
     [any] => { kind: TokenKind::Keyword(Keyword::Any) },
     [with] => { kind: TokenKind::Keyword(Keyword::With) },
     [ctl] => { kind: TokenKind::Keyword(Keyword::Ctl) },
+    [effect] => { kind: TokenKind::Keyword(Keyword::Effect) },
     [type] => { kind: TokenKind::Type(_), prompt: "type" },
     [lint] => { kind: TokenKind::Int(_), prompt: "integer literal" },
     [lstring] => { kind: TokenKind::String(_), prompt: "string literal" },
@@ -308,8 +316,10 @@ pub(super) enum Statement {
     ),
     LocalDecl(Token![let], Token![ident], Token![=], Expression, Token![;]),
     FnDecl(Box<FnDecl>),
+    EffectDecl(EffectDecl),
     If(Box<IfStatement>),
     Return(Token![return], Expression, Token![;]),
+    Resume(Token![resume], Expression, Token![;]),
     Expression(ExpressionStatement),
     End(Token![eof]),
 }
@@ -322,18 +332,30 @@ pub(super) struct FnDecl {
     pub(super) block: FnBlock,
 }
 
+pub(super) type EffectTag = Token![ident];
+
 #[derive(Parse, Clone, Debug)]
 #[token(Token)]
 pub(super) struct FnBlock {
+    pub(super) signature: FnSignature,
+    pub(super) effects: SepSeq<EffectTag, Token![,]>,
+    pub(super) expression: Expression,
+}
+
+#[derive(Parse, Clone, Debug)]
+#[token(Token)]
+pub(super) struct FnSignature {
     lpr: Token![lpr],
     pub(super) args: SepSeq<ArgDef, Token![,]>,
     rpr: Token![rpr],
-    pub(super) expression: Expression,
 }
 
 impl Spanned for FnBlock {
     fn span(&self) -> laps::span::Span {
-        self.lpr.span().into_end_updated(self.rpr.span())
+        self.signature
+            .lpr
+            .span()
+            .into_end_updated(self.signature.rpr.span())
     }
 }
 
@@ -343,6 +365,25 @@ pub(super) struct ArgDef {
     pub(super) name: Token![ident],
     _colon: Token![:],
     pub(super) arg_type: Token![type],
+}
+
+#[derive(Parse, Clone, Debug)]
+#[token(Token)]
+pub(super) struct EffectDecl {
+    _effect: Token![effect],
+    pub(super) name: Token![ident],
+    _lbk: Token![lbk],
+    pub(super) handlers: Option<NonEmptySeq<EffectHandlerDecl>>,
+    _rbk: Token![rbk],
+}
+
+#[derive(Parse, Clone, Debug)]
+#[token(Token)]
+pub(super) struct EffectHandlerDecl {
+    _ctl: Token![ctl],
+    pub(super) name: Token![ident],
+    pub(super) signature: FnSignature,
+    _semi: Token![;],
 }
 
 #[derive(Parse, Clone, Debug)]
@@ -502,7 +543,7 @@ pub(super) struct ParenExpression {
 #[token(Token)]
 pub(super) struct BlockExpression {
     lbk: Token![lbk],
-    pub(super) with_handlers: Option<WithHandlers>,
+    pub(super) with_handlers: Option<NonEmptySeq<WithHandlers>>,
     pub(super) statements: Option<NonEmptySeq<Statement>>,
     rbk: Token![rbk],
 }
@@ -517,6 +558,7 @@ impl Spanned for BlockExpression {
 #[token(Token)]
 pub(super) struct WithHandlers {
     _with: Token![with],
+    pub(super) effect: Token![ident],
     _lbk: Token![lbk],
     pub(super) handlers: NonEmptySeq<EffectHandler>,
     _rbk: Token![rbk],

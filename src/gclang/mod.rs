@@ -1,13 +1,13 @@
 mod executor;
-mod parser;
 mod gcstd;
+mod parser;
 
+pub use anyhow::{anyhow, Context, Error};
 pub use executor::Library;
-pub use executor::Value;
-pub use parser::Program;
 pub use executor::Scopes;
-pub use anyhow::{anyhow, Error, Context};
-pub use executor::{Result, Exception, ensure, bail, Ok};
+pub use executor::Value;
+pub use executor::{bail, ensure, Effect, Exception, Ok, Result};
+pub use parser::Program;
 
 #[macro_export]
 macro_rules! library_function {

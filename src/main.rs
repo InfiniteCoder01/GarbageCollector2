@@ -258,13 +258,24 @@ impl speedy2d::window::WindowHandler for Game {
                 gclang::ensure!(args.is_empty(), "screen_height() was not ment to be used with arguments!");
                 gclang::Ok(Value::Int(screen_height as _))
             });
-            if let Err(gclang::Exception::Error(err)) =
-                terminal.program.eval(&mut self.input.scopes, &mut library)
-            {
-                let screen = get_screen_buffer(&mut self.input.scopes);
-                screen.push_str("\x1bff0000");
-                screen.push_str(&err.to_string());
-                screen.push_str("\x18\n");
+            if let Err(error) = terminal.program.eval(&mut self.input.scopes, &mut library) {
+                if let Some(error) = match error {
+                    gclang::Exception::Error(error) => Some(error.to_string()),
+                    gclang::Exception::Effect(gclang::Effect {
+                        effect, handler, ..
+                    })
+                    | gclang::Exception::EffectUnwind(effect, handler, _) => Some(format!(
+                        "Unhandled effect '{}' (handler '{}')!",
+                        effect, handler
+                    )),
+                    gclang::Exception::Resume(_) => Some(String::from("Internal error: Resume lost path!")),
+                    gclang::Exception::Return(_) => None,
+                } {
+                    let screen = get_screen_buffer(&mut self.input.scopes);
+                    screen.push_str("\x1bff0000");
+                    screen.push_str(&error);
+                    screen.push_str("\x18\n");
+                }
             }
 
             // * Draw terminal

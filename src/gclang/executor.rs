@@ -9,7 +9,27 @@ pub type Result<T> = std::result::Result<T, Exception>;
 
 pub enum Exception {
     Error(Error),
+    Effect(Effect),
     Return(Value),
+    Resume(Value),
+    EffectUnwind(String, String, Value),
+}
+
+#[derive(Debug, Clone)]
+pub struct Effect {
+    pub effect: String,
+    pub handler: String,
+    args: Vec<Value>,
+}
+
+impl Effect {
+    pub fn error(message: String) -> Self {
+        Self {
+            effect: String::from("exception"),
+            handler: String::from("error"),
+            args: vec![Value::String(message)],
+        }
+    }
 }
 
 impl From<anyhow::Error> for Exception {
@@ -35,11 +55,56 @@ macro_rules! bail {
     ($fmt:expr$(, $($arg:tt)*)?) => {
         return Err($crate::gclang::Exception::Error(anyhow!($fmt$(, $($arg)*)?)))
     };
+    (late effect $fmt:expr$(, $($arg:tt)*)?) => {
+        return Err($crate::gclang::Exception::Effect($crate::gclang::Effect::error(format!($fmt$(, $($arg)*)?))));
+    };
+    (effect $scopes: ident, $library: ident, $fmt:expr$(, $($arg:tt)*)?) => {
+        on_effect(
+            Effect::error(format!($fmt$(, $($arg)*)?)),
+            $scopes,
+            $library,
+        )?
+    };
+    (unresumable $scopes: ident, $library: ident, $fmt:expr$(, $($arg:tt)*)?) => {
+        on_effect(
+            Effect::Error(format!($fmt$(, $($arg)*)?)),
+            $scopes,
+            $library,
+        )?;
+        bail!("Unresumable");
+    };
 }
 
 #[allow(non_snake_case)]
 pub fn Ok<T>(value: T) -> Result<T> {
     Result::Ok(value)
+}
+
+pub fn on_effect(effect: Effect, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
+    if let Some((index, handler)) = scopes.get_handler(&effect.effect, &effect.handler)? {
+        let mut unwind = scopes.local.split_off(index);
+        let result = handler.eval(
+            scopes,
+            library,
+            effect.args,
+            Some(&format!(
+                "handler \"{}\" for effect \"{}\"",
+                effect.handler, effect.effect
+            )),
+        );
+        scopes.local.append(&mut unwind);
+        match result {
+            Err(Exception::Resume(value)) => Ok(value),
+            Err(error) => Err(error),
+            Result::Ok(result) => Err(Exception::EffectUnwind(
+                effect.effect,
+                effect.handler,
+                result,
+            )),
+        }
+    } else {
+        Err(Exception::Effect(effect))
+    }
 }
 
 pub use bail;
@@ -130,11 +195,15 @@ pub struct Scopes {
 struct StackFrame {
     variables: HashMap<String, Value>,
     functions: HashMap<String, Function>,
+    effects: HashMap<String, EffectDecl>,
+    effect_handlers: HashMap<String, HashMap<String, Function>>,
+    included_effects: HashMap<String, Effect>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Function {
     args: Vec<ArgDef>,
+    effects: Vec<EffectTag>,
     expression: Expression,
 }
 
@@ -181,6 +250,34 @@ impl Function {
                 .context("Internal error: nowhere to create an argument variable!")?
                 .variables
                 .insert(arg_def.name.ident().to_owned(), arg);
+        }
+        for effect in &self.effects {
+            let effect = match scopes.get_effect(effect.ident()) {
+                Result::Ok(effect) => effect,
+                Err(err) => {
+                    scopes.local.pop();
+                    return Err(err);
+                }
+            };
+            if let Some(handlers) = &effect.handlers {
+                let mut included_effects = HashMap::new();
+                for handler in &handlers.0 {
+                    included_effects.insert(
+                        handler.name.ident().to_owned(),
+                        Effect {
+                            effect: effect.name.ident().to_owned(),
+                            handler: handler.name.ident().to_owned(),
+                            args: Vec::new(),
+                        },
+                    );
+                }
+
+                scopes
+                    .local
+                    .last_mut()
+                    .context("Internal error: nowhere to create an effect!")?
+                    .included_effects = included_effects;
+            }
         }
         let result = self.expression.eval(scopes, library);
         scopes.local.pop();
@@ -246,22 +343,63 @@ impl Scopes {
         }
     }
 
-    fn get_function(&self, name: &str) -> Result<&Function> {
+    fn get_function(&self, name: &str) -> Option<&Function> {
         match self
             .local
             .iter()
             .rev()
             .find_map(|frame| frame.functions.get(name))
         {
-            Some(functoin) => Ok(functoin),
+            Some(function) => Some(function),
             None => match self.get(name) {
-                Result::Ok(Value::Function(function)) => Ok(function),
-                Result::Ok(_) => {
-                    bail!("Function `{name}` not found! Note: variable with this name exists.")
-                }
-                Err(_) => bail!("Function `{name}` not found!"),
+                Result::Ok(Value::Function(function)) => Some(function),
+                _ => None,
             },
         }
+    }
+
+    fn get_included_effect(&self, name: &str) -> Option<&Effect> {
+        self.local
+            .iter()
+            .rev()
+            .find_map(|frame| frame.included_effects.get(name))
+    }
+
+    fn get_effect(&self, name: &str) -> Result<&EffectDecl> {
+        match self
+            .local
+            .iter()
+            .rev()
+            .find_map(|frame| frame.effects.get(name))
+        {
+            Some(effect) => Ok(effect),
+            None => bail!("Effect `{name}` not found!"),
+        }
+    }
+
+    fn get_handler(&self, effect: &str, handler: &str) -> Result<Option<(usize, Function)>> {
+        Ok(
+            match self
+                .local
+                .iter()
+                .enumerate()
+                .rev()
+                .find_map(|(index, frame)| {
+                    frame
+                        .effect_handlers
+                        .get(effect)
+                        .map(|handlers| (index, handlers))
+                }) {
+                Some((index, handlers)) => Some((
+                    index,
+                    handlers.get(handler).cloned().context(format!(
+                        "Internal error: No effect handler '{}' for effect '{}'!",
+                        handler, effect
+                    ))?,
+                )),
+                None => None,
+            },
+        )
     }
 
     pub fn get_global_or_insert(&mut self, name: &str, default: Value) -> &mut Value {
@@ -295,7 +433,7 @@ impl Eval for Statement {
                 match scopes
                     .local
                     .last_mut()
-                    .context("Nowhere to create a local variable!")?
+                    .context("Internal error: Nowhere to create a local variable!")?
                     .variables
                     .entry(name.ident().to_owned())
                 {
@@ -309,8 +447,10 @@ impl Eval for Statement {
                 Ok(Value::Unit)
             }
             Statement::FnDecl(decl) => decl.eval(scopes, library),
+            Statement::EffectDecl(decl) => decl.eval(scopes, library),
             Statement::If(statement) => statement.eval(scopes, library),
             Statement::Return(_, expr, _) => Err(Exception::Return(expr.eval(scopes, library)?)),
+            Statement::Resume(_, expr, _) => Err(Exception::Resume(expr.eval(scopes, library)?)),
             Statement::Expression(expr) => expr.eval(scopes, library),
             Statement::End(_) => Ok(Value::Never),
         }
@@ -318,15 +458,12 @@ impl Eval for Statement {
 }
 
 impl Eval for FnDecl {
-    fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
-        let block = match self.block.eval(scopes, library)? {
-            Value::Function(function) => function,
-            _ => unreachable!(),
-        };
+    fn eval(&self, scopes: &mut Scopes, _library: &mut Library) -> Result<Value> {
+        let block = self.block.function();
         match scopes
             .local
             .last_mut()
-            .context("Nowhere to create a local function!")?
+            .context("Internal error: Nowhere to create a local function!")?
             .functions
             .entry(self.name.ident().to_owned())
         {
@@ -335,6 +472,26 @@ impl Eval for FnDecl {
             }
             std::collections::hash_map::Entry::Vacant(function) => {
                 function.insert(block);
+            }
+        }
+        Ok(Value::Unit)
+    }
+}
+
+impl Eval for EffectDecl {
+    fn eval(&self, scopes: &mut Scopes, _library: &mut Library) -> Result<Value> {
+        match scopes
+            .local
+            .last_mut()
+            .context("Internal error: Nowhere to create a local effect!")?
+            .effects
+            .entry(self.name.ident().to_owned())
+        {
+            std::collections::hash_map::Entry::Occupied(_) => {
+                bail!("Effect '{}' already exists!", self.name.ident())
+            }
+            std::collections::hash_map::Entry::Vacant(effect) => {
+                effect.insert(self.clone());
             }
         }
         Ok(Value::Unit)
@@ -573,6 +730,78 @@ impl Eval for ParenExpression {
 impl Eval for BlockExpression {
     fn eval(&self, scopes: &mut Scopes, library: &mut Library) -> Result<Value> {
         scopes.local.push(StackFrame::default());
+
+        if let Some(with_handlers) = &self.with_handlers {
+            let mut add_handlers = || -> Result<()> {
+                for with_block in &with_handlers.0 {
+                    let effect_decl = scopes.get_effect(with_block.effect.ident())?;
+                    if let Some(handlers_decl) = &effect_decl.handlers {
+                        let effect_name = effect_decl.name.ident().to_owned();
+                        ensure!(
+                            with_block.handlers.0.len() == handlers_decl.0.len(),
+                            "Handler count mismatch for effect '{}'",
+                            with_block.effect.ident(),
+                        );
+                        let mut effect_handlers = HashMap::new();
+                        for handler_decl in &handlers_decl.0 {
+                            let handler_impl = &with_block
+                                .handlers
+                                .0
+                                .iter()
+                                .find(|handler_impl| {
+                                    handler_impl.1.ident() == handler_decl.name.ident()
+                                })
+                                .context(format!(
+                                    "Handler '{}' is not implemented for effect '{}'!",
+                                    handler_decl.name.ident(),
+                                    effect_decl.name.ident()
+                                ))?
+                                .2;
+                            // * Check signature
+                            if !handler_decl.signature.args.0.iter().enumerate().all(
+                                |(index, arg)| {
+                                    if let Some(impl_arg) = handler_impl.signature.args.0.get(index)
+                                    {
+                                        impl_arg.arg_type.inner() == arg.arg_type.inner()
+                                    } else {
+                                        false
+                                    }
+                                },
+                            ) {
+                                bail!(format!(
+                                    "Handler '{}' have incorrect signature for effect '{}'!",
+                                    handler_decl.name.ident(),
+                                    effect_decl.name.ident()
+                                ));
+                            }
+                            effect_handlers.insert(
+                                handler_decl.name.ident().to_owned(),
+                                handler_impl.function(),
+                            );
+                        }
+                        scopes
+                            .local
+                            .last_mut()
+                            .context("Internal error: Nowhere to add an effect handler!")?
+                            .effect_handlers
+                            .insert(effect_name, effect_handlers);
+                    } else {
+                        ensure!(
+                            with_block.handlers.0.is_empty(),
+                            "Effect '{}' doesn't have any handlers!",
+                            with_block.effect.ident(),
+                        );
+                    }
+                }
+                Ok(())
+            };
+            let result = add_handlers();
+            if let Err(err) = result {
+                scopes.local.pop();
+                return Err(err);
+            }
+        }
+
         let mut eval = || -> Result<()> {
             if let Some(statements) = &self.statements {
                 for statement in &statements.0 {
@@ -584,26 +813,29 @@ impl Eval for BlockExpression {
         let result = eval();
         scopes.local.pop();
         if let Some(with_handlers) = &self.with_handlers {
-            if let Err(exception) = &result {
-                for EffectHandler(_, name, handler) in &with_handlers.handlers.0 {
-                    let handler = match handler.eval(scopes, library)? {
-                        Value::Function(handler) => handler,
-                        _ => unreachable!(),
-                    };
-                    if name.ident() == "exception" {
-                        if let Exception::Error(err) = &exception {
-                            return handler.eval(
-                                scopes,
-                                library,
-                                vec![Value::String(err.to_string())],
-                                Some(name.ident()),
-                            );
-                        }
-                    }
+            if let Err(Exception::EffectUnwind(effect, handler, value)) = result {
+                if with_handlers
+                    .0
+                    .iter()
+                    .find(|with_block| with_block.effect.ident() == effect)
+                    .is_some_and(|with_block| {
+                        with_block
+                            .handlers
+                            .0
+                            .iter()
+                            .any(|effect_handler| effect_handler.1.ident() == handler)
+                    })
+                {
+                    return Ok(value);
+                } else {
+                    return Err(Exception::EffectUnwind(effect, handler, value));
                 }
+            } else {
+                result?;
             }
+        } else {
+            result?;
         }
-        result?;
         Ok(Value::Unit)
     }
 }
@@ -649,12 +881,19 @@ impl Eval for Table {
     }
 }
 
+impl FnBlock {
+    fn function(&self) -> Function {
+        Function {
+            args: self.signature.args.0.clone(),
+            effects: self.effects.0.clone(),
+            expression: self.expression.clone(),
+        }
+    }
+}
+
 impl Eval for FnBlock {
     fn eval(&self, _scopes: &mut Scopes, _library: &mut Library) -> Result<Value> {
-        Ok(Value::Function(Function {
-            args: self.args.0.clone(),
-            expression: self.expression.clone(),
-        }))
+        Ok(Value::Function(self.function()))
     }
 }
 
@@ -670,19 +909,47 @@ impl Eval for Access {
         Ok(if let Some(index) = index {
             match (value, index) {
                 (Value::String(value), Value::Int(index)) => Value::String(
-                    value
-                        .get(index as usize..=index as usize)
-                        .context(format!("String index out of bounds! Index: '{}'", index))?
-                        .to_owned(),
+                    if let Some(value) = value.get(index as usize..=index as usize) {
+                        value.to_owned()
+                    } else {
+                        bail!(
+                            effect
+                            scopes,
+                            library,
+                            "String index out of bounds! Index: '{}'",
+                            index,
+                        );
+                        bail!("Unresumable");
+                    },
                 ),
-                (Value::Array(value), Value::Int(index)) => value
-                    .get(index as usize)
-                    .context(format!("Array index out of bounds! Index: {:?}", index))?
-                    .clone(),
-                (Value::Table(value), index) => value
-                    .get(&index)
-                    .context(format!("Index not found! Index: {:?}", index))?
-                    .clone(),
+                (Value::Array(value), Value::Int(index)) => {
+                    if let Some(value) = value.get(index as usize) {
+                        value.clone()
+                    } else {
+                        bail!(
+                            effect
+                            scopes,
+                            library,
+                            "Array index out of bounds! Index: {:?}",
+                            index
+                        );
+                        bail!("Unresumable");
+                    }
+                }
+                (Value::Table(value), index) => {
+                    if let Some(value) = value.get(&index) {
+                        value.clone()
+                    } else {
+                        bail!(
+                            effect
+                            scopes,
+                            library,
+                            "Index not found in table! Index: {:?}",
+                            index
+                        );
+                        bail!("Unresumable");
+                    }
+                }
                 (target, index) => {
                     bail!("You can't index {:?}[{:?}], type mismatch!", target, index)
                 }
@@ -712,79 +979,99 @@ impl Eval for FunctionCall {
                 })
             })
             .collect::<std::result::Result<Vec<_>, _>>()?;
-        if self.name.ident() == "eval" {
-            match &args[..] {
-                [Value::String(code)] => {
-                    Program::parse(code)?.eval(scopes, library)?;
-                    Ok(Value::Unit)
-                }
-                _ => bail!(r#"Usage: eval("some_global_variable = \"Evaluated\";");"#),
-            }
-        } else if self.name.ident() == "import" {
-            match &args[..] {
-                [Value::String(code)] => {
-                    Program::parse(code)?.import(scopes, library)?;
-                    Ok(Value::Unit)
-                }
-                _ => bail!(r#"Usage: import("fn something() {{}}");"#),
-            }
-        } else if self.name.ident() == "for" {
-            match &args[..] {
-                [Value::String(string), Value::Function(body)] => {
-                    for character in string.chars() {
-                        body.eval(
-                            scopes,
-                            library,
-                            vec![Value::String(String::from(character))],
-                            Some("for loop body"),
-                        )?;
-                    }
-                    Ok(Value::Unit)
-                }
-                [Value::Array(array), Value::Function(body)] => {
-                    for element in array {
-                        body.eval(
-                            scopes,
-                            library,
-                            vec![element.clone()],
-                            Some("for loop body"),
-                        )?;
-                    }
-                    Ok(Value::Unit)
-                }
-                [Value::Table(table), Value::Function(body)] => {
-                    for (key, value) in table {
-                        body.eval(
-                            scopes,
-                            library,
-                            vec![key.clone(), value.clone()],
-                            Some("for loop body"),
-                        )?;
-                    }
-                    Ok(Value::Unit)
-                }
-                [Value::Int(initial), Value::Int(limit), Value::Function(body)] => {
-                    for index in *initial..*limit {
-                        body.eval(
-                            scopes,
-                            library,
-                            vec![Value::Int(index)],
-                            Some("for loop body"),
-                        )?;
-                    }
-                    Ok(Value::Unit)
-                }
-                _ => bail!(concat!(
-                    r#"Usage: for([1, 2, 3], fn (number: int) {{ println(number); }});\n"#,
-                    r#"or for(0, 2, fn (index: int) {{ println(index); }});\n"#,
-                    r#"or for({ a = 1; b = 2; }, fn (key: String, value: int) {{ println(key, value); }});"#,
-                )),
-            }
-        } else if let Some(function) = library.functions.get_mut(self.name.ident()) {
-            function(scopes, args)
-        } else {
-            let function = scopes.get_function(self.name.ident())?.clone();
+
+        if let Some(function) = scopes.get_function(self.name.ident()).cloned() {
             function.eval(scopes, library, args, Some(self.name.ident()))
+        } else if let Some(mut effect) = scopes.get_included_effect(self.name.ident()).cloned() {
+            effect.args = args;
+            on_effect(effect, scopes, library)
+        } else {
+            let perform = || {
+                if self.name.ident() == "eval" {
+                    match &args[..] {
+                        [Value::String(code)] => {
+                            Program::parse(code)?.eval(scopes, library)?;
+                            Ok(Value::Unit)
+                        }
+                        _ => bail!(r#"Usage: eval("some_global_variable = \"Evaluated\";");"#),
+                    }
+                } else if self.name.ident() == "import" {
+                    match &args[..] {
+                        [Value::String(code)] => {
+                            Program::parse(code)?.import(scopes, library)?;
+                            Ok(Value::Unit)
+                        }
+                        _ => bail!(r#"Usage: import("fn something() {{}}");"#),
+                    }
+                } else if self.name.ident() == "for" {
+                    match &args[..] {
+                        [Value::String(string), Value::Function(body)] => {
+                            for character in string.chars() {
+                                body.eval(
+                                    scopes,
+                                    library,
+                                    vec![Value::String(String::from(character))],
+                                    Some("for loop body"),
+                                )?;
+                            }
+                            Ok(Value::Unit)
+                        }
+                        [Value::Array(array), Value::Function(body)] => {
+                            for element in array {
+                                body.eval(
+                                    scopes,
+                                    library,
+                                    vec![element.clone()],
+                                    Some("for loop body"),
+                                )?;
+                            }
+                            Ok(Value::Unit)
+                        }
+                        [Value::Table(table), Value::Function(body)] => {
+                            for (key, value) in table {
+                                body.eval(
+                                    scopes,
+                                    library,
+                                    vec![key.clone(), value.clone()],
+                                    Some("for loop body"),
+                                )?;
+                            }
+                            Ok(Value::Unit)
+                        }
+                        [Value::Int(initial), Value::Int(limit), Value::Function(body)] => {
+                            for index in *initial..*limit {
+                                body.eval(
+                                    scopes,
+                                    library,
+                                    vec![Value::Int(index)],
+                                    Some("for loop body"),
+                                )?;
+                            }
+                            Ok(Value::Unit)
+                        }
+                        _ => bail!(concat!(
+                            r#"Usage: for([1, 2, 3], fn (number: int) {{ println(number); }});\n"#,
+                            r#"or for(0, 2, fn (index: int) {{ println(index); }});\n"#,
+                            r#"or for({ a = 1; b = 2; }, fn (key: String, value: int) {{ println(key, value); }});"#,
+                        )),
+                    }
+                } else if let Some(function) = library.functions.get_mut(self.name.ident()) {
+                    let result = function(scopes, args);
+                    if let Err(Exception::Effect(effect)) = result {
+                        on_effect(effect, scopes, library)
+                    } else {
+                        result
+                    }
+                } else {
+                    bail!("Function `{}` not found!", self.name.ident());
+                }
+            };
+            let result = perform();
+            if let Err(Exception::Effect(effect)) = result {
+                on_effect(effect, scopes, library)
+            } else {
+                result
+            }
         }
     }
 }
@@ -846,7 +1133,14 @@ impl AssignTo for Access {
             match (target, index, value) {
                 (Value::String(target), Value::Int(index), Value::String(value)) => {
                     if index < 0 || index as usize >= target.len() {
-                        bail!("String index out of bounds! Index: {}", index);
+                        bail!(
+                            effect
+                            scopes,
+                            library,
+                            "String index out of bounds! Index: {}",
+                            index
+                        );
+                        bail!("Unresumable");
                     }
                     target.replace_range(index as usize..=index as usize, &value);
                 }
@@ -855,7 +1149,14 @@ impl AssignTo for Access {
                 }
                 (Value::Array(target), Value::Int(index), value) => {
                     if index < 0 || index as usize >= target.len() {
-                        bail!("Array index out of bounds! Index: {}", index);
+                        bail!(
+                            effect
+                            scopes,
+                            library,
+                            "Array index out of bounds! Index: {}",
+                            index
+                        );
+                        bail!("Unresumable");
                     }
                     let target = target.get_mut(index as usize).unwrap();
                     if let Value::Any(target) = target {
