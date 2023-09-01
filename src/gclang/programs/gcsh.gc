@@ -130,6 +130,8 @@ if len(args) > 1 {
                 println();
                 gcsh_execute();
                 return unit;
+            } else if contains(input, "\x11") {
+                exit();
             } else {
                 gcsh_command = gcsh_command + input;
                 print(input);

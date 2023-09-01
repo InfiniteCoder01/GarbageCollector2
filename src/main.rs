@@ -214,144 +214,159 @@ impl speedy2d::window::WindowHandler for Game {
         }
 
         if let Some(terminal) = &mut self.input.terminal {
-            use gclang::Value;
-            get_screen_buffer(&mut self.input.scopes);
-            let border = UVec2::from(13);
-            let screen_height = 30usize;
-            let screen_width = (((assets.terminal.size().x - border.x * 2) * screen_height as u32
-                / (assets.terminal.size().y - border.y * 2)) as f32
-                / assets
-                    .font
-                    .layout_text("#", 1.0, Default::default())
-                    .width()) as usize;
+            let mut should_exit = false;
+            {
+                use gclang::Value;
+                get_screen_buffer(&mut self.input.scopes);
+                let border = UVec2::from(13);
+                let screen_height = 30usize;
+                let screen_width =
+                    (((assets.terminal.size().x - border.x * 2) * screen_height as u32
+                        / (assets.terminal.size().y - border.y * 2)) as f32
+                        / assets
+                            .font
+                            .layout_text("#", 1.0, Default::default())
+                            .width()) as usize;
 
-            let mut library = gclang::Library::with_std();
-            library_function!(library += print (scopes, args) {
-                let output = args
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                get_screen_buffer(scopes).push_str(&output);
-                gclang::Ok(Value::Unit)
-            });
-            library_function!(library += println (scopes, args) {
-                let output = args
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let screen = get_screen_buffer(scopes);
-                screen.push_str(&output);
-                screen.push('\n');
-                gclang::Ok(Value::Unit)
-            });
-            library_function!(library += input (_scopes, args) {
-                gclang::ensure!(args.is_empty(), "input() was not ment to be used with arguments!");
-                gclang::Ok(Value::String(self.input.typed_text.clone()))
-            });
-            library_function!(library += screen_width (_scopes, args) {
-                gclang::ensure!(args.is_empty(), "screen_width() was not ment to be used with arguments!");
-                gclang::Ok(Value::Int(screen_width as _))
-            });
-            library_function!(library += screen_height (_scopes, args) {
-                gclang::ensure!(args.is_empty(), "screen_height() was not ment to be used with arguments!");
-                gclang::Ok(Value::Int(screen_height as _))
-            });
-            if let Err(error) = terminal.program.eval(&mut self.input.scopes, &mut library) {
-                if let Some(error) = match error {
-                    gclang::Exception::Error(error) => Some(error.to_string()),
-                    gclang::Exception::Effect(gclang::Effect {
-                        effect, handler, ..
-                    })
-                    | gclang::Exception::EffectUnwind(effect, handler, _) => Some(format!(
-                        "Unhandled effect '{}' (handler '{}')!",
-                        effect, handler
-                    )),
-                    gclang::Exception::Resume(_) => {
-                        Some(String::from("Internal error: Resume lost path!"))
+                let mut library = gclang::Library::with_std();
+                library_function!(library += print (scopes, args) {
+                    let output = args
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    get_screen_buffer(scopes).push_str(&output);
+                    gclang::Ok(Value::Unit)
+                });
+                library_function!(library += println (scopes, args) {
+                    let output = args
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let screen = get_screen_buffer(scopes);
+                    screen.push_str(&output);
+                    screen.push('\n');
+                    gclang::Ok(Value::Unit)
+                });
+                library_function!(library += input (_scopes, args) {
+                    gclang::ensure!(args.is_empty(), "input() was not ment to be used with arguments!");
+                    gclang::Ok(Value::String(self.input.typed_text.clone()))
+                });
+                library_function!(library += screen_width (_scopes, args) {
+                    gclang::ensure!(args.is_empty(), "screen_width() was not ment to be used with arguments!");
+                    gclang::Ok(Value::Int(screen_width as _))
+                });
+                library_function!(library += screen_height (_scopes, args) {
+                    gclang::ensure!(args.is_empty(), "screen_height() was not ment to be used with arguments!");
+                    gclang::Ok(Value::Int(screen_height as _))
+                });
+                library_function!(library += exit (_scopes, args) {
+                    gclang::ensure!(args.is_empty(), "exit() was not ment to be used with arguments!");
+                    should_exit = true;
+                    gclang::Ok(Value::Unit)
+                });
+                if let Err(error) = terminal.program.eval(&mut self.input.scopes, &mut library) {
+                    if let Some(error) = match error {
+                        gclang::Exception::Error(error) => Some(error.to_string()),
+                        gclang::Exception::Effect(gclang::Effect {
+                            effect, handler, ..
+                        })
+                        | gclang::Exception::EffectUnwind(effect, handler, _) => Some(format!(
+                            "Unhandled effect '{}' (handler '{}')!",
+                            effect, handler
+                        )),
+                        gclang::Exception::Resume(_) => {
+                            Some(String::from("Internal error: Resume lost path!"))
+                        }
+                        gclang::Exception::Return(_) => None,
+                    } {
+                        let screen = get_screen_buffer(&mut self.input.scopes);
+                        screen.push_str("\x1bff0000");
+                        screen.push_str(&error);
+                        screen.push_str("\x18\n");
                     }
-                    gclang::Exception::Return(_) => None,
-                } {
-                    let screen = get_screen_buffer(&mut self.input.scopes);
-                    screen.push_str("\x1bff0000");
-                    screen.push_str(&error);
-                    screen.push_str("\x18\n");
+                }
+
+                // * Draw terminal
+                let scale = self.size.y as f32 / 1.2 / assets.terminal.size().y as f32;
+                let size = assets.terminal.size().into_f32() * scale;
+                let tl = (self.size.into_f32() - size) / 2.0;
+                graphics.draw_rectangle_image(
+                    speedy2d::shape::Rectangle::new(tl, tl + size),
+                    &assets.terminal,
+                );
+
+                let border = border.into_f32() * scale;
+                let tl = tl + border;
+                let line_height = (size.y - border.y * 2.0) / screen_height as f32;
+                let screen = get_screen_buffer(&mut self.input.scopes);
+                let mut cursor = tl;
+                let mut color = None;
+                let mut background = None;
+                let line_count = screen.matches('\n').count() + 1;
+                terminal.scroll = terminal
+                    .scroll
+                    .min(line_count.max(screen_height) - screen_height + 1);
+                for (index, line) in screen.split('\n').enumerate() {
+                    let visible = (terminal.scroll..terminal.scroll + screen_height)
+                        .contains(&(line_count - index));
+                    let mut sections = Vec::new();
+                    let mut last_index = 0;
+                    for (index, escape) in line.match_indices(['\x1b', '\x1c', '\x18', '\x19']) {
+                        if visible {
+                            sections.push((color, background, &line[last_index..index]));
+                        }
+                        if escape == "\x1b" || escape == "\x1c" {
+                            if line.len() <= index + 6 {
+                                continue;
+                            }
+                            if let Result::Ok(color_hex) =
+                                u32::from_str_radix(&line[index + 1..=index + 6], 16)
+                            {
+                                if escape == "\x1b" {
+                                    color = Some(Color::from_hex_rgb(color_hex));
+                                } else {
+                                    background = Some(Color::from_hex_rgb(color_hex));
+                                }
+                            }
+                            last_index = index + 7;
+                        } else {
+                            if escape == "\x18" {
+                                color = None;
+                            } else {
+                                background = None;
+                            }
+                            last_index = index + 1;
+                        }
+                    }
+                    if visible {
+                        sections.push((color, background, &line[last_index..]));
+                        for (color, background, section) in sections {
+                            let section = &assets.font.layout_text(
+                                section,
+                                line_height,
+                                TextOptions::default().with_trim_each_line(false),
+                            );
+                            if let Some(background) = background {
+                                graphics.draw_rectangle(
+                                    speedy2d::shape::Rectangle::new(
+                                        cursor,
+                                        cursor + section.size(),
+                                    ),
+                                    background,
+                                );
+                            }
+                            graphics.draw_text(cursor, color.unwrap_or(Color::GREEN), section);
+                            cursor.x += section.width();
+                        }
+                        cursor.y += line_height;
+                        cursor.x = tl.x;
+                    }
                 }
             }
-
-            // * Draw terminal
-            let scale = self.size.y as f32 / 1.2 / assets.terminal.size().y as f32;
-            let size = assets.terminal.size().into_f32() * scale;
-            let tl = (self.size.into_f32() - size) / 2.0;
-            graphics.draw_rectangle_image(
-                speedy2d::shape::Rectangle::new(tl, tl + size),
-                &assets.terminal,
-            );
-
-            let border = border.into_f32() * scale;
-            let tl = tl + border;
-            let line_height = (size.y - border.y * 2.0) / screen_height as f32;
-            let screen = get_screen_buffer(&mut self.input.scopes);
-            let mut cursor = tl;
-            let mut color = None;
-            let mut background = None;
-            let line_count = screen.matches('\n').count() + 1;
-            terminal.scroll = terminal
-                .scroll
-                .min(line_count.max(screen_height) - screen_height + 1);
-            for (index, line) in screen.split('\n').enumerate() {
-                let visible = (terminal.scroll..terminal.scroll + screen_height)
-                    .contains(&(line_count - index));
-                let mut sections = Vec::new();
-                let mut last_index = 0;
-                for (index, escape) in line.match_indices(['\x1b', '\x1c', '\x18', '\x19']) {
-                    if visible {
-                        sections.push((color, background, &line[last_index..index]));
-                    }
-                    if escape == "\x1b" || escape == "\x1c" {
-                        if line.len() <= index + 6 {
-                            continue;
-                        }
-                        if let Result::Ok(color_hex) =
-                            u32::from_str_radix(&line[index + 1..=index + 6], 16)
-                        {
-                            if escape == "\x1b" {
-                                color = Some(Color::from_hex_rgb(color_hex));
-                            } else {
-                                background = Some(Color::from_hex_rgb(color_hex));
-                            }
-                        }
-                        last_index = index + 7;
-                    } else {
-                        if escape == "\x18" {
-                            color = None;
-                        } else {
-                            background = None;
-                        }
-                        last_index = index + 1;
-                    }
-                }
-                if visible {
-                    sections.push((color, background, &line[last_index..]));
-                    for (color, background, section) in sections {
-                        let section = &assets.font.layout_text(
-                            section,
-                            line_height,
-                            TextOptions::default().with_trim_each_line(false),
-                        );
-                        if let Some(background) = background {
-                            graphics.draw_rectangle(
-                                speedy2d::shape::Rectangle::new(cursor, cursor + section.size()),
-                                background,
-                            );
-                        }
-                        graphics.draw_text(cursor, color.unwrap_or(Color::GREEN), section);
-                        cursor.x += section.width();
-                    }
-                    cursor.y += line_height;
-                    cursor.x = tl.x;
-                }
+            if should_exit {
+                self.input.terminal = None;
             }
         }
 
@@ -365,11 +380,11 @@ impl speedy2d::window::WindowHandler for Game {
 fn get_screen_buffer(scopes: &mut gclang::Scopes) -> &mut String {
     let screen = scopes.get_global_or_insert(
         "screen_buffer",
-        gclang::Value::String(String::from("Net Terminal V1.0\n")),
+        gclang::Value::String(String::from("Net Terminal V1.0\nCtrl+Q to exit\n")),
     );
 
     if !matches!(screen, gclang::Value::String(_)) {
-        *screen = gclang::Value::String(String::from("Refreshing buffer, it was of wrong type.\n"));
+        *screen = gclang::Value::String(String::from("Refreshing buffer, it was of wrong type (probably internal error).\n"));
     }
 
     match screen {
