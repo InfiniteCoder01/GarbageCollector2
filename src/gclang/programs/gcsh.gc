@@ -55,6 +55,7 @@ global gcsh_command = "";
 global gcsh_executable = "";
 global gcsh_home_directory = "/home";
 global gcsh_working_directory = gcsh_home_directory;
+let GCSH_CURSOR = "\x1c00ff00 \x18";
 
 fn gcsh_execute() {
     with exception {
@@ -113,11 +114,12 @@ if len(args) > 1 {
     gcsh_execute();
 } else {
     if gcsh_executable == "" {
-        print("\x1b009092" + gcsh_working_directory + "\x18\n> ");
+        print("\x1b009092" + gcsh_working_directory + "\x18\n> " + GCSH_CURSOR);
         gcsh_executable = "/bin/gcsh";
         gcsh_command = "";
     } else if gcsh_executable == "/bin/gcsh" {
         let input = input();
+        for(GCSH_CURSOR, fn (_: String) { screen_buffer = pop(screen_buffer); });
         if len(input) > 0 {
             if contains(input, "\x08") {
                 if len(gcsh_command) > 0 {
@@ -127,11 +129,13 @@ if len(args) > 1 {
             } else if contains(input, "\n") {
                 println();
                 gcsh_execute();
+                return unit;
             } else {
                 gcsh_command = gcsh_command + input;
                 print(input);
             }
         }
+        screen_buffer = screen_buffer + GCSH_CURSOR;
     } else {
         eval(read_file(gcsh_executable));
     }

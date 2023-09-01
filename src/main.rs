@@ -268,7 +268,9 @@ impl speedy2d::window::WindowHandler for Game {
                         "Unhandled effect '{}' (handler '{}')!",
                         effect, handler
                     )),
-                    gclang::Exception::Resume(_) => Some(String::from("Internal error: Resume lost path!")),
+                    gclang::Exception::Resume(_) => {
+                        Some(String::from("Internal error: Resume lost path!"))
+                    }
                     gclang::Exception::Return(_) => None,
                 } {
                     let screen = get_screen_buffer(&mut self.input.scopes);
@@ -293,6 +295,7 @@ impl speedy2d::window::WindowHandler for Game {
             let screen = get_screen_buffer(&mut self.input.scopes);
             let mut cursor = tl;
             let mut color = None;
+            let mut background = None;
             let line_count = screen.matches('\n').count() + 1;
             terminal.scroll = terminal
                 .scroll
@@ -302,33 +305,47 @@ impl speedy2d::window::WindowHandler for Game {
                     .contains(&(line_count - index));
                 let mut sections = Vec::new();
                 let mut last_index = 0;
-                for (index, escape) in line.match_indices(['\x1b', '\x18']) {
+                for (index, escape) in line.match_indices(['\x1b', '\x1c', '\x18', '\x19']) {
                     if visible {
-                        sections.push((color, &line[last_index..index]));
+                        sections.push((color, background, &line[last_index..index]));
                     }
-                    if escape == "\x1b" {
+                    if escape == "\x1b" || escape == "\x1c" {
                         if line.len() <= index + 6 {
                             continue;
                         }
                         if let Result::Ok(color_hex) =
                             u32::from_str_radix(&line[index + 1..=index + 6], 16)
                         {
-                            color = Some(Color::from_hex_rgb(color_hex));
+                            if escape == "\x1b" {
+                                color = Some(Color::from_hex_rgb(color_hex));
+                            } else {
+                                background = Some(Color::from_hex_rgb(color_hex));
+                            }
                         }
                         last_index = index + 7;
                     } else {
-                        color = None;
+                        if escape == "\x18" {
+                            color = None;
+                        } else {
+                            background = None;
+                        }
                         last_index = index + 1;
                     }
                 }
                 if visible {
-                    sections.push((color, &line[last_index..]));
-                    for (color, section) in sections {
+                    sections.push((color, background, &line[last_index..]));
+                    for (color, background, section) in sections {
                         let section = &assets.font.layout_text(
                             section,
                             line_height,
                             TextOptions::default().with_trim_each_line(false),
                         );
+                        if let Some(background) = background {
+                            graphics.draw_rectangle(
+                                speedy2d::shape::Rectangle::new(cursor, cursor + section.size()),
+                                background,
+                            );
+                        }
                         graphics.draw_text(cursor, color.unwrap_or(Color::GREEN), section);
                         cursor.x += section.width();
                     }
