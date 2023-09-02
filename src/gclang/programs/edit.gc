@@ -1,2 +1,91 @@
-global file = "";
+global edit_file = "";
+global edit_buffer = "";
+global edit_cursor = 0;
+global edit_status = "Ready";
 
+fn load_file(filename: String) exception {
+	edit_cursor = 0;
+	edit_status = "Ready";
+	edit_file = filename;
+	edit_buffer = read_file(filename);
+}
+
+fn save_file() exception {
+	write_file(edit_file, edit_buffer);
+	edit_status = "Saved";
+}
+
+fn main() exception {
+	with exception {
+		ctl error(message: String) {
+			edit_status = "\x1bff0000Error: \"" + message + "\"!\x18";
+			resume unit;
+		}
+	}
+
+	edit_cursor = min(max(edit_cursor + arrows_x(), 0), len(edit_buffer));
+	let input = input();
+	if len(input) > 0 {
+		if contains(input, "\x08") {
+			if edit_cursor > 0 {
+				edit_buffer = remove(edit_buffer, edit_cursor - 1);
+				edit_cursor = edit_cursor - 1;
+			}
+		} else if contains(input, "\x7f") {
+			if edit_cursor > 0 {
+				edit_buffer = remove(edit_buffer, edit_cursor);
+			}
+		} else if contains(input, "\x11") {
+			gcsh_executable = "";
+		} else if contains(input, "\x13") {
+			save_file();
+		} else {
+			if edit_cursor < len(edit_buffer) {
+				edit_buffer[edit_cursor] = input + edit_buffer[edit_cursor];
+			} else {
+				edit_buffer = edit_buffer + input;
+			}
+			edit_cursor = edit_cursor + len(input);
+		}
+	}
+
+	screen_buffer = "";
+	let line = 0;
+	let index = 0;
+	for(edit_buffer, fn(char: String) {
+		if line < screen_height() - 1 {
+			if index == edit_cursor {
+				if char == "\n" {
+					screen_buffer = screen_buffer + "\x1b000000\x1c00ff00 \x18\x19\n";
+				} else {
+					screen_buffer = screen_buffer + "\x1b000000\x1c00ff00" + char + "\x18\x19";
+				}
+			} else {
+				screen_buffer = screen_buffer + char;
+			}
+		}
+		if char == "\n" {
+			line = line + 1;
+		}
+		index = index + 1;
+	});
+	for(line, screen_height() - 1, fn(_: int) {
+		screen_buffer = screen_buffer + "\n";
+	});
+	screen_buffer = screen_buffer + edit_status;
+}
+
+if len(args) > 1 {
+	args = remove(args, 0);
+	{
+		with exception {
+			ctl error(message: String) {
+				return unit;
+			}
+		}
+		load_file(args[0]);
+	}
+	gcsh_executable = "/bin/edit";
+} else if len(args) == 0 {
+	main();
+}

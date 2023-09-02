@@ -53,8 +53,11 @@ impl Player {
         delta_time: f32,
     ) {
         if input.terminal.is_none() {
+            let mut controls = input.wasd + input.arrows;
+            controls.x = controls.x.clamp(-1, 1);
+            controls.y = controls.y.clamp(-1, 1);
             if input.editor {
-                self.velocity = input.wasd.into_f32() * 16.0 * 10.0;
+                self.velocity = controls.into_f32() * 16.0 * 10.0;
                 let hover_tile =
                     (input.mouse + camera.offset).into_i32() / assets.tileset.tile_size.into_i32();
                 if let Some(tile) = level.tile_mut(hover_tile) {
@@ -73,7 +76,7 @@ impl Player {
                     }
                 }
             } else {
-                let target_velocity = input.wasd.x as f32 * 16.0 * 6.0;
+                let target_velocity = controls.x as f32 * 16.0 * 6.0;
                 self.velocity.x += (target_velocity - self.velocity.x) * delta_time * 7.0;
                 self.velocity.y += 1000.0 * delta_time;
                 if input.jump && self.jumps > 0 {

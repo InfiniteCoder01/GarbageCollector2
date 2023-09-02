@@ -124,6 +124,7 @@ pub struct Camera<'a> {
 
 pub struct Input {
     pub wasd: IVec2,
+    pub arrows: IVec2,
     pub jump: bool,
     pub interact: bool,
     pub shift: bool,
@@ -158,6 +159,7 @@ impl Default for Input {
 
         Self {
             wasd: IVec2::ZERO,
+            arrows: IVec2::ZERO,
             jump: false,
             interact: false,
             shift: false,

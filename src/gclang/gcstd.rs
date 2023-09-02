@@ -109,6 +109,7 @@ impl Library<'_> {
 
                     "clear" = embed_file!("screen_buffer = \"\";");
                     "ls" = define_file!("programs/ls.gc");
+                    "edit" = define_file!("programs/edit.gc");
                 };
                 "lib" = define_file! {
                     "curses.gc" = define_file!("programs/curses.gc");

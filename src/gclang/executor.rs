@@ -234,6 +234,7 @@ impl Function {
                 (Value::Int(_), Type::Int) => (),
                 (Value::Bool(_), Type::Bool) => (),
                 (Value::String(_), Type::String) => (),
+                (Value::Array(_), Type::Array) => (),
                 (Value::Table(_), Type::Table) => (),
                 (_, Type::Any) => (),
                 _ => {

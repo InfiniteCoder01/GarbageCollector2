@@ -15,7 +15,7 @@ enum TokenKind {
     _Skip,
     #[regex(r"global|let|fn|if|else|true|false|unit|return|table|any|with|ctl|effect|resume")]
     Keyword(Keyword),
-    #[regex(r"int|bool|String|Table|Any")]
+    #[regex(r"int|bool|String|Array|Table|Any")]
     Type(Type),
     #[regex(r"[_a-zA-Z][_a-zA-Z0-9]*")]
     Ident(String),
@@ -102,6 +102,7 @@ pub(super) enum Type {
     Int,
     Bool,
     String,
+    Array,
     Table,
     Any,
 }
@@ -114,6 +115,7 @@ impl FromStr for Type {
             "int" => Ok(Self::Int),
             "bool" => Ok(Self::Bool),
             "String" => Ok(Self::String),
+            "Array" => Ok(Self::Array),
             "Table" => Ok(Self::Table),
             "Any" => Ok(Self::Any),
             _ => Err(()),
@@ -127,6 +129,7 @@ impl fmt::Display for Type {
             Self::Int => write!(f, "int"),
             Self::Bool => write!(f, "bool"),
             Self::String => write!(f, "String"),
+            Self::Array => write!(f, "Array"),
             Self::Table => write!(f, "Table"),
             Self::Any => write!(f, "Any"),
         }

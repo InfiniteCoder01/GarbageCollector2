@@ -67,14 +67,14 @@ impl Game {
     fn on_key(&mut self, key: VirtualKeyCode, state: bool) {
         #[allow(clippy::neg_multiply, clippy::identity_op)]
         match key {
-            VirtualKeyCode::A | VirtualKeyCode::Left => self.input.wasd.x = -1 * state as i32,
-            VirtualKeyCode::D | VirtualKeyCode::Right => self.input.wasd.x = 1 * state as i32,
-            VirtualKeyCode::Space | VirtualKeyCode::W | VirtualKeyCode::Up => {
-                self.input.wasd.y = -1 * state as i32
-            }
-            VirtualKeyCode::LShift | VirtualKeyCode::S | VirtualKeyCode::Down => {
-                self.input.wasd.y = 1 * state as i32
-            }
+            VirtualKeyCode::A => self.input.wasd.x = -1 * state as i32,
+            VirtualKeyCode::D => self.input.wasd.x = 1 * state as i32,
+            VirtualKeyCode::Space | VirtualKeyCode::W => self.input.wasd.y = -1 * state as i32,
+            VirtualKeyCode::LShift | VirtualKeyCode::S => self.input.wasd.y = 1 * state as i32,
+            VirtualKeyCode::Left => self.input.arrows.x = -1 * state as i32,
+            VirtualKeyCode::Right => self.input.arrows.x = 1 * state as i32,
+            VirtualKeyCode::Up => self.input.arrows.y = -1 * state as i32,
+            VirtualKeyCode::Down => self.input.arrows.y = 1 * state as i32,
             _ => (),
         };
     }
@@ -253,6 +253,14 @@ impl speedy2d::window::WindowHandler for Game {
                     gclang::ensure!(args.is_empty(), "input() was not ment to be used with arguments!");
                     gclang::Ok(Value::String(self.input.typed_text.clone()))
                 });
+                library_function!(library += arrows_x (_scopes, args) {
+                    gclang::ensure!(args.is_empty(), "arrows_x() was not ment to be used with arguments!");
+                    gclang::Ok(Value::Int(self.input.arrows.x))
+                });
+                library_function!(library += arrows_y (_scopes, args) {
+                    gclang::ensure!(args.is_empty(), "arrows_x() was not ment to be used with arguments!");
+                    gclang::Ok(Value::Int(self.input.arrows.y))
+                });
                 library_function!(library += screen_width (_scopes, args) {
                     gclang::ensure!(args.is_empty(), "screen_width() was not ment to be used with arguments!");
                     gclang::Ok(Value::Int(screen_width as _))
@@ -307,9 +315,9 @@ impl speedy2d::window::WindowHandler for Game {
                 let line_count = screen.matches('\n').count() + 1;
                 terminal.scroll = terminal
                     .scroll
-                    .min(line_count.max(screen_height) - screen_height + 1);
+                    .min(line_count.max(screen_height) - screen_height);
                 for (index, line) in screen.split('\n').enumerate() {
-                    let visible = (terminal.scroll..terminal.scroll + screen_height)
+                    let visible = (terminal.scroll..=terminal.scroll + screen_height)
                         .contains(&(line_count - index));
                     let mut sections = Vec::new();
                     let mut last_index = 0;
@@ -384,7 +392,9 @@ fn get_screen_buffer(scopes: &mut gclang::Scopes) -> &mut String {
     );
 
     if !matches!(screen, gclang::Value::String(_)) {
-        *screen = gclang::Value::String(String::from("Refreshing buffer, it was of wrong type (probably internal error).\n"));
+        *screen = gclang::Value::String(String::from(
+            "Refreshing buffer, it was of wrong type (probably internal error).\n",
+        ));
     }
 
     match screen {
