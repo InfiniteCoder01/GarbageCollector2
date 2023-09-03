@@ -7,6 +7,7 @@ use speedy2d::shape::Rectangle;
 
 pub struct Assets {
     pub font: speedy2d::font::Font,
+    pub logs: Vec<&'static str>,
 
     pub tileset: Atlas,
     pub player: Atlas,
@@ -40,6 +41,22 @@ impl Assets {
         Ok(Self {
             font: speedy2d::font::Font::new(include_bytes!("../Assets/JoystixMonospace.ttf"))
                 .map_err(|err| anyhow!(err.to_string()))?,
+            logs: vec![
+                "Nullptr exception!\n[systemctl] Network service was stopped because of OOM,\nrun \"systemctl restart network\" to restart it.\nUser with name \"Garbage Collector\" logged in.",
+                "*4 log lines skipped*\n[firewall] User \"Garbage Collector\" is not in whitelist.\nConsider adding their name to /firewall/whitelist",
+                "*6 log lines skipped*\n[rsa-service] RSA key leaked: \"SGkh\"!",
+                concat!(
+                    "*7 log lines skipped*\n",
+                    "Dear player!\n",
+                    "Unfortunately, I didn't manage to get this game\n",
+                    "done. I spend too much time making a\n",
+                    "langage for it.\n",
+                    "You can study it by viewing files in /bin\n",
+                    "with edit. You can write something in it using\n",
+                    "\"edit /bin/myprogram\", type some code and\n",
+                    "write \"someprogram\"."
+                ),
+            ],
 
             tileset: load_texture!(Tileset, (16, 16)),
             player: load_texture!(Player, (16, 24)),
@@ -133,6 +150,8 @@ pub struct Input {
     pub mouse_left: bool,
     pub mouse_right: bool,
 
+    pub index: usize,
+    pub next_index: Option<usize>,
     pub editor: bool,
     pub palette: Vec<crate::level::Tile>,
     pub palette_index: usize,
@@ -168,8 +187,18 @@ impl Default for Input {
             mouse_left: false,
             mouse_right: false,
 
+            index: 0,
+            next_index: None,
             editor: false,
-            palette: vec![Tile::Ground, Tile::Table, Tile::Terminal],
+            palette: vec![
+                Tile::Ground,
+                Tile::Table,
+                Tile::Terminal,
+                Tile::Block,
+                Tile::Port,
+                Tile::Firewall,
+                Tile::Private,
+            ],
             palette_index: 0,
 
             typed_text: String::new(),

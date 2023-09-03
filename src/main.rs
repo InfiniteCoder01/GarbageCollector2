@@ -24,9 +24,8 @@ struct Game {
     assets: Option<Assets>,
     player: player::Player,
     levels: Vec<Level>,
-    level_index: usize,
 
-    last_frame: std::time::Instant,
+    last_frame: instant::Instant,
     input: Input,
     size: UVec2,
     scale: f32,
@@ -49,15 +48,17 @@ impl Game {
 
         let levels = vec![
             load_level!(0),
-            // Level::blank(UVec2::new(40, 10)),
+            load_level!(1),
+            load_level!(2),
+            load_level!(3),
+            // Level::blank(UVec2::new(20, 10)),
         ];
         Self {
             assets: None,
             player: player::Player::new(Vec2::new(16.0, 24.0)),
             levels,
-            level_index: 0,
 
-            last_frame: std::time::Instant::now(),
+            last_frame: instant::Instant::now(),
             input: Input::default(),
             size: UVec2::ZERO,
             scale: 1.0,
@@ -67,14 +68,14 @@ impl Game {
     fn on_key(&mut self, key: VirtualKeyCode, state: bool) {
         #[allow(clippy::neg_multiply, clippy::identity_op)]
         match key {
-            VirtualKeyCode::A => self.input.wasd.x = -1 * state as i32,
-            VirtualKeyCode::D => self.input.wasd.x = 1 * state as i32,
-            VirtualKeyCode::Space | VirtualKeyCode::W => self.input.wasd.y = -1 * state as i32,
-            VirtualKeyCode::LShift | VirtualKeyCode::S => self.input.wasd.y = 1 * state as i32,
-            VirtualKeyCode::Left => self.input.arrows.x = -1 * state as i32,
-            VirtualKeyCode::Right => self.input.arrows.x = 1 * state as i32,
-            VirtualKeyCode::Up => self.input.arrows.y = -1 * state as i32,
-            VirtualKeyCode::Down => self.input.arrows.y = 1 * state as i32,
+            VirtualKeyCode::A | VirtualKeyCode::Left => self.input.wasd.x = -1 * state as i32,
+            VirtualKeyCode::D | VirtualKeyCode::Right => self.input.wasd.x = 1 * state as i32,
+            VirtualKeyCode::Space | VirtualKeyCode::W | VirtualKeyCode::Up => {
+                self.input.wasd.y = -1 * state as i32
+            }
+            VirtualKeyCode::LShift | VirtualKeyCode::S | VirtualKeyCode::Down => {
+                self.input.wasd.y = 1 * state as i32
+            }
             _ => (),
         };
     }
@@ -109,29 +110,37 @@ impl speedy2d::window::WindowHandler for Game {
     ) {
         if let Some(key) = virtual_key_code {
             self.on_key(key, true);
+            match key {
+                VirtualKeyCode::Left => self.input.arrows.x = -1,
+                VirtualKeyCode::Right => self.input.arrows.x = 1,
+                VirtualKeyCode::Up => self.input.arrows.y = -1,
+                VirtualKeyCode::Down => self.input.arrows.y = 1,
+                VirtualKeyCode::E => self.input.interact = true,
+                // VirtualKeyCode::Escape => self.input.editor = !self.input.editor,
+                // VirtualKeyCode::Z => {
+                //     std::fs::write(
+                //         format!("Assets/Levels/{}.ron", self.input.index),
+                //         ron::to_string(&LevelSave::from(&self.levels[self.input.index]))
+                //             .expect("Failed to serialize level!"),
+                //     )
+                //     .expect("Failed to write level!");
+                // }
+                _ => (),
+            }
             if key == VirtualKeyCode::Space || key == VirtualKeyCode::W || key == VirtualKeyCode::Up
             {
                 self.input.jump = true;
-            } else if key == VirtualKeyCode::E {
-                self.input.interact = true;
-            } else if key == VirtualKeyCode::Escape {
-                self.input.editor = !self.input.editor;
-            } else if key == VirtualKeyCode::Z {
-                std::fs::write(
-                    format!("Assets/Levels/{}.ron", self.level_index),
-                    ron::to_string(&LevelSave::from(&self.levels[self.level_index]))
-                        .expect("Failed to serialize level!"),
-                )
-                .expect("Failed to write level!");
             }
         }
     }
 
     fn on_keyboard_char(&mut self, _helper: &mut WindowHelper<()>, unicode_codepoint: char) {
-        self.input.typed_text.push(match unicode_codepoint {
-            '\r' => '\n',
-            codepoint => codepoint,
-        });
+        if unicode_codepoint != '\x1b' {
+            self.input.typed_text.push(match unicode_codepoint {
+                '\r' => '\n',
+                codepoint => codepoint,
+            });
+        }
     }
 
     fn on_key_up(
@@ -185,7 +194,7 @@ impl speedy2d::window::WindowHandler for Game {
             .assets
             .get_or_insert_with(|| Assets::load(graphics).expect("Failed to load assets"));
 
-        let level = &mut self.levels[self.level_index];
+        let mut level = &mut self.levels[self.input.index];
 
         self.scale = self.size.y as f32 / level.size().y as f32 / assets.tileset.tile_size.y as f32;
         let offset = self.player.position + assets.player.tile_size.into_f32() / 2.0
@@ -199,11 +208,11 @@ impl speedy2d::window::WindowHandler for Game {
         };
 
         let delta_time = self.last_frame.elapsed().as_secs_f32();
-        self.last_frame = std::time::Instant::now();
+        self.last_frame = instant::Instant::now();
 
-        level.update(assets, &mut camera, delta_time);
+        level.update(assets, &mut self.input, &mut camera, &self.player, delta_time);
         self.player
-            .update(assets, level, &mut camera, &mut self.input, delta_time);
+            .update(assets, &mut self.input, level, &mut camera, delta_time);
 
         if self.input.editor {
             graphics.draw_text(
@@ -213,7 +222,23 @@ impl speedy2d::window::WindowHandler for Game {
             )
         }
 
+        if let Some(next_level) = self.input.next_index {
+            self.input.index = next_level;
+            self.input.next_index = None;
+            level = &mut self.levels[self.input.index];
+            if self.player.position.x >= level.size().x as f32 / 2.0 {
+                self.player.position.x = 16.0;
+            } else {
+                self.player.position.x =
+                    (level.size().x - 2) as f32 * assets.tileset.tile_size.x as f32;
+            }
+        }
+
         if let Some(terminal) = &mut self.input.terminal {
+            if let Some(log) = self.input.scopes.get_path(vec!["home", "log"]) {
+                *log = gclang::Value::String(assets.logs[self.input.index].to_owned());
+            }
+
             let mut should_exit = false;
             {
                 use gclang::Value;
@@ -252,6 +277,14 @@ impl speedy2d::window::WindowHandler for Game {
                 library_function!(library += input (_scopes, args) {
                     gclang::ensure!(args.is_empty(), "input() was not ment to be used with arguments!");
                     gclang::Ok(Value::String(self.input.typed_text.clone()))
+                });
+                library_function!(library += delta_time (_scopes, args) {
+                    gclang::ensure!(args.is_empty(), "delta_time() was not ment to be used with arguments!");
+                    gclang::Ok(Value::Int((delta_time * 1000.0) as _))
+                });
+                library_function!(library += level_index (_scopes, args) {
+                    gclang::ensure!(args.is_empty(), "level_index() was not ment to be used with arguments!");
+                    gclang::Ok(Value::Int(self.input.index as _))
                 });
                 library_function!(library += arrows_x (_scopes, args) {
                     gclang::ensure!(args.is_empty(), "arrows_x() was not ment to be used with arguments!");
@@ -380,6 +413,7 @@ impl speedy2d::window::WindowHandler for Game {
 
         self.input.jump = false;
         self.input.interact = false;
+        self.input.arrows = IVec2::ZERO;
         self.input.typed_text.clear();
         helper.request_redraw();
     }
@@ -388,7 +422,7 @@ impl speedy2d::window::WindowHandler for Game {
 fn get_screen_buffer(scopes: &mut gclang::Scopes) -> &mut String {
     let screen = scopes.get_global_or_insert(
         "screen_buffer",
-        gclang::Value::String(String::from("Net Terminal V1.0\nCtrl+Q to exit\n")),
+        gclang::Value::String(String::from("Net Terminal V1.0\nCtrl+Q to exit\nType \"edit /home/log\" to view logs.\n")),
     );
 
     if !matches!(screen, gclang::Value::String(_)) {

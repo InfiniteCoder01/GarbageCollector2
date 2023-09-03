@@ -6,10 +6,11 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.75"
 bidivec = "0.1.0"
-enum-lexer = "0.1.0"
+getrandom = { version = "0.2.10", features = ["js"] }
+instant = "0.1.12"
 laps = { version = "0.1.2", features = ["macros"] }
 map-macro = "0.2.6"
+rand = "0.8.5"
 ron = "0.8.1"
 serde = { version = "1.0.188", features = ["derive"] }
 speedy2d = { git = "https://github.com/InfiniteCoder01/Speedy2D.git", branch = "master" }
-textwrap = "0.16.0"

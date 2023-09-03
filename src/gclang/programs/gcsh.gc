@@ -94,7 +94,7 @@ global gcsh_home_directory = "/home";
 global gcsh_working_directory = gcsh_home_directory;
 global gcsh_history = [];
 global gcsh_history_cursor = 0;
-let GCSH_CURSOR = "\x1c00ff00 \x18";
+let GCSH_CURSOR = "\x1c00ff00 \x19";
 
 fn gcsh_execute() {
     with exception {
@@ -178,13 +178,13 @@ if len(args) > 1 {
                 print(input);
             }
         }
-        screen_buffer = screen_buffer + GCSH_CURSOR;
         if arrows_y() != 0 && len(gcsh_history) > 0 {
             gcsh_history_cursor = min(max(gcsh_history_cursor + arrows_y(), 0), len(gcsh_history) - 1);
             for(gcsh_command, fn (_: String) { screen_buffer = pop(screen_buffer); });
             gcsh_command = gcsh_history[gcsh_history_cursor];
             screen_buffer = screen_buffer + gcsh_command;
         }
+        screen_buffer = screen_buffer + GCSH_CURSOR;
     } else {
         eval(read_file(gcsh_executable));
     }

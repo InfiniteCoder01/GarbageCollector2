@@ -12,6 +12,6 @@ let
 in
 with pkgs; mkShell {
   inputsFrom = [ ];
-  buildInputs = [ rustup pkg-config python3 ];
+  buildInputs = [ rustup pkg-config python3  ];
   LD_LIBRARY_PATH = "${libPath}";
 }

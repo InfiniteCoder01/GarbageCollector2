@@ -3,7 +3,13 @@ global edit_buffer = "";
 global edit_cursor = 0;
 global edit_status = "Ready";
 
-fn load_file(filename: String) exception {
+fn load_file(filename: String) {
+	with exception {
+		ctl error(_: String) {
+			println("File not found");
+			return "";
+		}
+	}
 	edit_cursor = 0;
 	edit_status = "Ready";
 	edit_file = filename;
@@ -32,7 +38,7 @@ fn main() exception {
 				edit_cursor = edit_cursor - 1;
 			}
 		} else if contains(input, "\x7f") {
-			if edit_cursor > 0 {
+			if edit_cursor < len(edit_buffer) {
 				edit_buffer = remove(edit_buffer, edit_cursor);
 			}
 		} else if contains(input, "\x11") {
@@ -69,22 +75,18 @@ fn main() exception {
 		}
 		index = index + 1;
 	});
+	if edit_cursor == len(edit_buffer) {
+		screen_buffer = screen_buffer + GCSH_CURSOR;
+	}
 	for(line, screen_height() - 1, fn(_: int) {
 		screen_buffer = screen_buffer + "\n";
 	});
-	screen_buffer = screen_buffer + edit_status;
+	screen_buffer = screen_buffer + edit_status + "   Ctrl+S to save   Ctrl+Q to exit";
 }
 
 if len(args) > 1 {
 	args = remove(args, 0);
-	{
-		with exception {
-			ctl error(message: String) {
-				return unit;
-			}
-		}
-		load_file(args[0]);
-	}
+	load_file(args[0]);
 	gcsh_executable = "/bin/edit";
 } else if len(args) == 0 {
 	main();

@@ -95,9 +95,12 @@ impl Library<'_> {
             }
 
             Ok(define_file! {
-                "home" = define_file! {};
+                "home" = define_file! {
+                    "log" = embed_file!("");
+                };
                 "bin" = define_file! {
                     "gcsh" = define_file!("programs/gcsh.gc");
+                    "systemctl" = define_file!("programs/systemctl.gc");
 
                     "bash" = define_file!("programs/bash.gc");
                     "fish" = define_file!("programs/bash.gc");
@@ -113,6 +116,12 @@ impl Library<'_> {
                 };
                 "lib" = define_file! {
                     "curses.gc" = define_file!("programs/curses.gc");
+                };
+                "firewall" = define_file! {
+                    "whitelist" = embed_file!("Nullptr");
+                };
+                "rsa" = define_file! {
+                    "keys" = embed_file!("SGVsbG8sIFdvcmxkIQ==\nSGVsbG8sIFRoZXJlIQ==\n");
                 };
             })
         });

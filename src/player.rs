@@ -18,20 +18,64 @@ impl Player {
         }
     }
 
-    fn collides(&self, assets: &Assets, level: &Level, input: &mut Input) -> bool {
-        let tl = self.position / assets.tileset.tile_size.into_f32();
+    fn collides(&mut self, assets: &Assets, level: &Level, input: &mut Input) -> bool {
+        let filewall_whitelist = match input.scopes.get_path(vec!["firewall", "whitelist"]) {
+            Some(crate::gclang::Value::String(whitelist)) => whitelist
+                .split('\n')
+                .any(|line| line.eq_ignore_ascii_case("Garbage Collector")),
+            _ => false,
+        };
+        let private_key = match input.scopes.get_path(vec!["rsa", "keys"]) {
+            Some(crate::gclang::Value::String(whitelist)) => whitelist
+                .split('\n')
+                .any(|line| line.eq_ignore_ascii_case("SGkh")),
+            _ => false,
+        };
+
+        let tl = (self.position + 1.0) / assets.tileset.tile_size.into_f32();
         let tl = Vec2::new(tl.x.floor(), tl.y.floor()).into_i32();
-        let br = (self.position + assets.player.tile_size.into_f32())
+        let br = ((self.position - 1.0) + assets.player.tile_size.into_f32())
             / assets.tileset.tile_size.into_f32();
         let br = Vec2::new(br.x.ceil(), br.y.ceil()).into_i32();
         for y in tl.y..br.y {
             for x in tl.x..br.x {
                 if let Some(tile) = level.tile(IVec2::new(x, y)) {
                     match tile {
-                        Tile::Ground => return true,
+                        Tile::Ground | Tile::Block => return true,
+                        Tile::Firewall => {
+                            if !filewall_whitelist {
+                                self.velocity.x = (self.position.x
+                                    - x as f32 * assets.tileset.tile_size.x as f32)
+                                    .signum()
+                                    * 500.0;
+                            }
+                        }
+                        Tile::Private => {
+                            if !private_key {
+                                self.velocity.x = (self.position.x
+                                    - x as f32 * assets.tileset.tile_size.x as f32)
+                                    .signum()
+                                    * 500.0;
+                            }
+                        }
                         Tile::Terminal => {
                             if input.interact {
                                 input.terminal = Some(Terminal::new(crate::gclang::gcsh()));
+                                input.interact = false;
+                            }
+                        }
+                        Tile::Port => {
+                            if input.interact && level.is_lit(input) {
+                                if x >= level.size().x as i32 / 2 {
+                                    if y == 0 {
+                                        input.next_index = Some(input.index + 2);
+                                    } else {
+                                        input.next_index = Some(input.index + 1);
+                                    }
+                                } else {
+                                    input.next_index = Some(input.index - 1);
+                                }
+                                input.interact = false;
                             }
                         }
                         _ => (),
@@ -47,17 +91,14 @@ impl Player {
     pub(crate) fn update(
         &mut self,
         assets: &Assets,
+        input: &mut Input,
         level: &mut Level,
         camera: &mut Camera,
-        input: &mut Input,
         delta_time: f32,
     ) {
         if input.terminal.is_none() {
-            let mut controls = input.wasd + input.arrows;
-            controls.x = controls.x.clamp(-1, 1);
-            controls.y = controls.y.clamp(-1, 1);
             if input.editor {
-                self.velocity = controls.into_f32() * 16.0 * 10.0;
+                self.velocity = input.wasd.into_f32() * 16.0 * 10.0;
                 let hover_tile =
                     (input.mouse + camera.offset).into_i32() / assets.tileset.tile_size.into_i32();
                 if let Some(tile) = level.tile_mut(hover_tile) {
@@ -68,15 +109,16 @@ impl Player {
                     }
                     if !input.mouse_right {
                         level.draw_tile(
-                            camera,
                             assets,
+                            input,
+                            camera,
                             hover_tile.into_u32(),
                             input.palette[input.palette_index],
                         );
                     }
                 }
             } else {
-                let target_velocity = controls.x as f32 * 16.0 * 6.0;
+                let target_velocity = input.wasd.x as f32 * 16.0 * 6.0;
                 self.velocity.x += (target_velocity - self.velocity.x) * delta_time * 7.0;
                 self.velocity.y += 1000.0 * delta_time;
                 if input.jump && self.jumps > 0 {
@@ -107,7 +149,7 @@ impl Player {
                 self.jumps = self.max_jumps;
             }
             while self.collides(assets, level, input) {
-                self.position -= motion / (motion.x + motion.y).abs() * 0.1;
+                self.position -= motion / (motion.x + motion.y).abs() * 0.05;
             }
         }
     }

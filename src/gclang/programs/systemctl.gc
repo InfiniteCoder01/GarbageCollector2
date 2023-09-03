@@ -1,0 +1,13 @@
+if len(args) != 3 {
+    println("\x1bff0000Usage: systemctl restart [service]\x18\nYou have permissions to restart services: network");
+} else {
+    if args[1] != "restart" {
+        println("\x1bff0000You can only restart service!\x18");
+        return unit;
+    }
+    if args[2] == "network" {
+        network_service = true;
+    } else {
+        println("\x1bff0000Unknown service: '" + args[2] + "'!\x18");
+    }
+}

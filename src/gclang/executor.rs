@@ -96,10 +96,10 @@ pub fn on_effect(effect: Effect, scopes: &mut Scopes, library: &mut Library) -> 
         match result {
             Err(Exception::Resume(value)) => Ok(value),
             Err(error) => Err(error),
-            Result::Ok(result) => Err(Exception::EffectUnwind(
+            Result::Ok(value) => Err(Exception::EffectUnwind(
                 effect.effect,
                 effect.handler,
-                result,
+                value,
             )),
         }
     } else {
@@ -405,6 +405,21 @@ impl Scopes {
 
     pub fn get_global_or_insert(&mut self, name: &str, default: Value) -> &mut Value {
         self.global.entry(name.to_owned()).or_insert(default)
+    }
+
+    pub fn get_path(&mut self, path: Vec<&str>) -> Option<&mut Value> {
+        self.global.get_mut("filesystem").and_then(|fs| {
+            let mut file = fs;
+            for entry in path {
+                file = match file {
+                    Value::Table(directory) => {
+                        directory.get_mut(&Value::String(entry.to_owned()))?
+                    }
+                    _ => return None,
+                }
+            }
+            Some(file)
+        })
     }
 }
 
