@@ -81,7 +81,7 @@ fn main() exception {
 	for(line, screen_height() - 1, fn(_: int) {
 		screen_buffer = screen_buffer + "\n";
 	});
-	screen_buffer = screen_buffer + edit_status + "   Ctrl+S to save   Ctrl+Q to exit";
+	screen_buffer = screen_buffer + edit_status + "   Ctrl+Alt+S to save   Ctrl+Alt+Q to exit";
 }
 
 if len(args) > 1 {

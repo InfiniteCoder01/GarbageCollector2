@@ -10,7 +10,10 @@ use speedy2d::window::{MouseButton, VirtualKeyCode, WindowHelper};
 fn main() {
     let handler = Game::new();
     #[cfg(target_family = "wasm")]
-    speedy2d::WebCanvas::new_for_id("canvas", handler).unwrap();
+    {
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        speedy2d::WebCanvas::new_for_id("canvas", handler).unwrap();
+    }
     #[cfg(not(target_family = "wasm"))]
     {
         let window =
@@ -76,6 +79,8 @@ impl Game {
             VirtualKeyCode::LShift | VirtualKeyCode::S | VirtualKeyCode::Down => {
                 self.input.wasd.y = 1 * state as i32
             }
+            VirtualKeyCode::LControl => self.input.ctrl = state,
+            VirtualKeyCode::LAlt => self.input.alt = state,
             _ => (),
         };
     }
@@ -110,12 +115,23 @@ impl speedy2d::window::WindowHandler for Game {
     ) {
         if let Some(key) = virtual_key_code {
             self.on_key(key, true);
+            dbg!(key);
             match key {
                 VirtualKeyCode::Left => self.input.arrows.x = -1,
                 VirtualKeyCode::Right => self.input.arrows.x = 1,
                 VirtualKeyCode::Up => self.input.arrows.y = -1,
                 VirtualKeyCode::Down => self.input.arrows.y = 1,
                 VirtualKeyCode::E => self.input.interact = true,
+                VirtualKeyCode::Q => {
+                    if self.input.ctrl && self.input.alt {
+                        self.input.typed_text += "\x11"
+                    }
+                }
+                VirtualKeyCode::S => {
+                    if self.input.ctrl && self.input.alt {
+                        self.input.typed_text += "\x13"
+                    }
+                }
                 // VirtualKeyCode::Escape => self.input.editor = !self.input.editor,
                 // VirtualKeyCode::Z => {
                 //     std::fs::write(
@@ -135,7 +151,7 @@ impl speedy2d::window::WindowHandler for Game {
     }
 
     fn on_keyboard_char(&mut self, _helper: &mut WindowHelper<()>, unicode_codepoint: char) {
-        if unicode_codepoint != '\x1b' {
+        if !['\x1b', '\x11', '\x13'].contains(&unicode_codepoint) {
             self.input.typed_text.push(match unicode_codepoint {
                 '\r' => '\n',
                 codepoint => codepoint,
@@ -203,14 +219,23 @@ impl speedy2d::window::WindowHandler for Game {
             - self.size.into_f32() / self.scale;
         let mut camera = Camera {
             graphics,
-            offset: Vec2::new(offset.x.clamp(0.0, bounds.x), offset.y.clamp(0.0, bounds.y)),
+            offset: Vec2::new(
+                offset.x.clamp(0.0, bounds.x.max(0.0)),
+                offset.y.clamp(0.0, bounds.y.max(0.0)),
+            ),
             scale: self.scale,
         };
 
         let delta_time = self.last_frame.elapsed().as_secs_f32();
         self.last_frame = instant::Instant::now();
 
-        level.update(assets, &mut self.input, &mut camera, &self.player, delta_time);
+        level.update(
+            assets,
+            &mut self.input,
+            &mut camera,
+            &self.player,
+            delta_time,
+        );
         self.player
             .update(assets, &mut self.input, level, &mut camera, delta_time);
 
@@ -422,7 +447,9 @@ impl speedy2d::window::WindowHandler for Game {
 fn get_screen_buffer(scopes: &mut gclang::Scopes) -> &mut String {
     let screen = scopes.get_global_or_insert(
         "screen_buffer",
-        gclang::Value::String(String::from("Net Terminal V1.0\nCtrl+Q to exit\nType \"edit /home/log\" to view logs.\n")),
+        gclang::Value::String(String::from(
+            "Net Terminal V1.0\nCtrl+Alt+Q to exit\nType \"edit /home/log\" to view logs.\n",
+        )),
     );
 
     if !matches!(screen, gclang::Value::String(_)) {

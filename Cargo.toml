@@ -6,8 +6,9 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.75"
 bidivec = "0.1.0"
+console_error_panic_hook = "0.1.7"
 getrandom = { version = "0.2.10", features = ["js"] }
-instant = "0.1.12"
+instant = { version = "0.1.12", features = ["wasm-bindgen"] }
 laps = { version = "0.1.2", features = ["macros"] }
 map-macro = "0.2.6"
 rand = "0.8.5"

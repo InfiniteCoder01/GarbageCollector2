@@ -144,7 +144,8 @@ pub struct Input {
     pub arrows: IVec2,
     pub jump: bool,
     pub interact: bool,
-    pub shift: bool,
+    pub ctrl: bool,
+    pub alt: bool,
 
     pub mouse: Vec2,
     pub mouse_left: bool,
@@ -181,7 +182,8 @@ impl Default for Input {
             arrows: IVec2::ZERO,
             jump: false,
             interact: false,
-            shift: false,
+            ctrl: false,
+            alt: false,
 
             mouse: Vec2::ZERO,
             mouse_left: false,
