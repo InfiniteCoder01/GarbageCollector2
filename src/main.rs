@@ -122,6 +122,9 @@ impl speedy2d::window::WindowHandler for Game {
                 VirtualKeyCode::Up => self.input.arrows.y = -1,
                 VirtualKeyCode::Down => self.input.arrows.y = 1,
                 VirtualKeyCode::E => self.input.interact = true,
+                VirtualKeyCode::Return => self.input.typed_text += "\n",
+                VirtualKeyCode::Backspace => self.input.typed_text += "\x08",
+                VirtualKeyCode::Delete => self.input.typed_text += "\x7f",
                 VirtualKeyCode::Q => {
                     if self.input.ctrl && self.input.alt {
                         self.input.typed_text += "\x11"
@@ -151,7 +154,7 @@ impl speedy2d::window::WindowHandler for Game {
     }
 
     fn on_keyboard_char(&mut self, _helper: &mut WindowHelper<()>, unicode_codepoint: char) {
-        if !['\x1b', '\x11', '\x13'].contains(&unicode_codepoint) {
+        if !['\x1b', '\x11', '\x13', '\n', '\x08', '\x7f'].contains(&unicode_codepoint) {
             self.input.typed_text.push(match unicode_codepoint {
                 '\r' => '\n',
                 codepoint => codepoint,
